@@ -20,11 +20,45 @@ function renderWithMath(text: string) {
   return <>{out}</>;
 }
 
-// Convierte fracciones "a/b" en LaTeX + algunos símbolos
+// Convierte a/b → LaTeX y asegura ×/÷ en modo matemático sin romper **negritas**
 function autoLatex(text: string) {
-  return text
-    .replace(/(?<!\d)(\d{1,3})\s*\/\s*(\d{1,3})(?!\d)/g, (_m, a, b) => `$\\frac{${a}}{${b}}$`)
-    .replace(/\*/g, " \\times ");
+  let t = text;
+
+  // Fracciones simples "a/b" (no URLs)
+  t = t.replace(/(?<!\d)(\d{1,3})\s*\/\s*(\d{1,3})(?!\d)/g, (_m, a, b) => `$\\frac{${a}}{${b}}$`);
+
+  // * como multiplicación (pero NO **negritas**)
+  t = t.replace(/(?<!\*)\*(?!\*)/g, " $\\times$ ");
+
+  // \times suelto -> modo matemático
+  t = t.replace(/\\times/g, "$\\times$");
+
+  // ÷ -> LaTeX
+  t = t.replace(/÷/g, " $\\div$ ");
+
+  return t;
+}
+
+// =============== Render enriquecido (KaTeX + bloques monoespaciados) ===============
+function renderRich(text: string) {
+  // Soporta ```bloques``` monoespaciados + KaTeX en el resto
+  const parts = text.split(/```([\s\S]*?)```/g);
+  const nodes: React.ReactNode[] = [];
+  parts.forEach((p, i) => {
+    if (i % 2 === 1) {
+      nodes.push(
+        <pre
+          key={`code-${i}`}
+          className="font-mono text-[14px] leading-5 bg-gray-900 text-green-100 rounded-lg p-3 overflow-auto"
+        >
+{p}
+        </pre>
+      );
+    } else {
+      nodes.push(<span key={`rich-${i}`}>{renderWithMath(p)}</span>);
+    }
+  });
+  return <>{nodes}</>;
 }
 
 // =============== TTS (no leer “1), 2) …” y LaTeX → habla natural) ===============
@@ -34,7 +68,7 @@ function powWord(n: string) {
   return `a la potencia de ${n}`;
 }
 function latexToSpeech(text: string) {
-  let t = text.replace(/^\s*\d+\)\s*/gm, ""); // quita numeración de pasos
+  let t = text.replace(/^\s*\d+\)\s*/gm, ""); // quita numeración
   t = t.replace(/(?<!\d)(\d{1,3})\s*\/\s*(\d{1,3})(?!\d)/g, (_m, a, b) => `$\\frac{${a}}{${b}}$`);
   t = t.replace(/\$\$?/g, "");
   t = t.replace(/\\frac\{(\d+)\}\{(\d+)\}/g, (_m, a, b) => `${a} sobre ${b}`);
@@ -104,9 +138,7 @@ export default function Chat() {
           history: msgs, // historial tipo chat
         }),
       });
-      if (!res.ok) {
-        throw new Error(await res.text());
-      }
+      if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       const assistant =
         Array.isArray(data?.steps) && data.steps.length
@@ -137,7 +169,8 @@ export default function Chat() {
         >
           {msgs.length === 0 && (
             <div className="text-gray-500 text-sm">
-              Escribe tu ejercicio (ej.: <em>456 + 789</em>, <em>602 − 458</em>, <em>38 × 7</em>, <em>924 ÷ 6</em>, <em>2/3 + 5/7</em>, <em>25% de 200</em>, <em>área triángulo b=10, h=6</em>, <em>media de 3, 5, 7</em>, <em>punto (−3, 2)</em>…).
+              Escribe tu ejercicio (p. ej.: <em>456 + 789</em>, <em>602 − 458</em>, <em>38 × 7</em>,{" "}
+              <em>72341 ÷ 68</em>, <em>2/3 + 5/7</em>, <em>25% de 200</em>…).
             </div>
           )}
 
@@ -171,7 +204,7 @@ export default function Chat() {
 
                 <div className="prose prose-sm max-w-none">
                   {m.role === "assistant"
-                    ? renderWithMath(autoLatex(m.content))
+                    ? renderRich(autoLatex(m.content))
                     : <span>{m.content}</span>}
                 </div>
               </div>

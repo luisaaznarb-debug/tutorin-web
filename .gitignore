@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# Netlify local (si usas Netlify CLI)
+.netlify/
+
+# IDEs / caches
+.vscode/
+.idea/
+.eslintcache
+.turbo/

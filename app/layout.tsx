@@ -1,33 +1,22 @@
 // app/layout.tsx
-import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import type { Metadata } from "next";
 
+// Tu CSS global (si lo usas)
 import "./globals.css";
-import "katex/dist/katex.min.css"; // KaTeX CSS para renderizar fórmulas
 
-const inter = Inter({ subsets: ["latin"] });
+// 👇 IMPORTA EL CSS DE KATEX (clave)
+import "katex/dist/katex.min.css";
 
 export const metadata: Metadata = {
   title: "Tutorín",
-  description: "Asistente educativo para primaria (6-12 años)",
-  icons: [{ rel: "icon", url: "/favicon.ico" }],
+  description: "Asistente paso a paso para 6º de primaria",
 };
 
-export const viewport: Viewport = {
-  themeColor: "#2563eb",
-  colorScheme: "light",
-};
-
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es">
-      <body className={`${inter.className} bg-white text-gray-900 antialiased`}>
-        {children}
-      </body>
+      <head />
+      <body className="bg-white text-gray-900 antialiased">{children}</body>
     </html>
   );
 }
