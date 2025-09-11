@@ -1,109 +1,77 @@
 'use client';
+import { useState } from 'react';
 
-import { useEffect, useRef, useState } from 'react';
-import { BlockMath, InlineMath } from 'react-katex';
-import 'katex/dist/katex.min.css';
-import { chatRequest, ChatMessage } from '@/lib/api';
-
-type Bubble = { role: 'user' | 'tutorin'; text: string };
+type Step = { title: string; detail?: string };
 
 export default function Home() {
-  const [status, setStatus] = useState('Comprobando API…');
-  const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
-  const [messages, setMessages] = useState<Bubble[]>([
-    { role: 'tutorin', text: '¡Hola! Soy Tutorín. Escríbeme un ejercicio de cualquier asignatura y te doy pistas 😊' },
-  ]);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const [input, setInput] = useState("");
+  const [steps, setSteps] = useState<Step[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
-
-  // Verificar si la API está viva
-  useEffect(() => {
-    const check = async () => {
-      try {
-        const r = await fetch(`${API_BASE}/ping`);
-        const j = await r.json();
-        setStatus(j?.message ?? 'API activa');
-      } catch {
-        setStatus('No puedo conectar con la API 😕');
-      }
-    };
-    check();
-  }, [API_BASE]);
-
-  // Autoscroll
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  // Renderizado con soporte para LaTeX
-  const renderWithLatex = (text: string) => {
-    const parts = text.split(/(\$\$[^$]+\$\$|\$[^$]+\$)/g).filter(Boolean);
-    return parts.map((p, i) => {
-      if (p.startsWith('$$') && p.endsWith('$$')) {
-        return <div key={i} className="my-2"><BlockMath math={p.slice(2, -2)} /></div>;
-      }
-      if (p.startsWith('$') && p.endsWith('$')) {
-        return <InlineMath key={i} math={p.slice(1, -1)} />;
-      }
-      return <span key={i}>{p}</span>;
-    });
-  };
-
-  const handleSend = async () => {
-    const text = input.trim();
-    if (!text || sending) return;
-    setInput('');
-    setMessages(prev => [...prev, { role: 'user', text }]);
-    setSending(true);
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setSteps([]);
 
     try {
-      const history: ChatMessage[] = messages.map(m => ({
-        role: m.role === 'user' ? 'user' : 'assistant',
-        content: m.text,
-      }));
-      const data = await chatRequest(text, history);
-      setMessages(prev => [...prev, { role: 'tutorin', text: data.reply }]);
+      const res = await fetch("/api/solve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: input,       // ← lo que escribió el usuario
+          grade: "Primaria"  // ← opcional; tu backend lo acepta
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || "Error pidiendo pistas");
+      }
+
+      const data = await res.json(); // { steps: [...] }
+      setSteps(data.steps || []);
     } catch (e: any) {
-      setMessages(prev => [
-        ...prev,
-        { role: 'tutorin', text: 'Uy… no pude pensar ahora mismo. ¿Probamos otra vez?' },
-        { role: 'tutorin', text: `Detalle técnico: ${e?.message ?? e}` },
-      ]);
+      setError(e.message || "Algo salió mal");
     } finally {
-      setSending(false);
+      setLoading(false);
     }
-  };
+  }
 
   return (
-    <main className="mx-auto max-w-2xl p-6">
-      <h1 className="text-2xl font-bold mb-1">Tutorín</h1>
-      <p className="text-sm text-gray-600 mb-6">Estado API: {status}</p>
+    <main className="max-w-3xl mx-auto p-6">
+      <h1 className="text-3xl font-bold mb-2">Tutorín</h1>
+      <p className="text-gray-600 mb-6">Estado API: (usa tu indicador si lo tienes)</p>
 
-      <div className="space-y-3 mb-4">
-        {messages.map((m, i) => (
-          <div key={i} className={`rounded-lg p-3 leading-relaxed ${m.role === 'user' ? 'bg-blue-100 ml-12' : 'bg-white border mr-12'}`}>
-            <div className="text-xs text-gray-500 mb-1">{m.role === 'user' ? 'Tú' : 'Tutorín'}</div>
-            <div className="prose prose-sm max-w-none">{renderWithLatex(m.text)}</div>
-          </div>
-        ))}
-        <div ref={bottomRef} />
-      </div>
-
-      <div className="flex gap-2">
+      <form onSubmit={onSubmit} className="flex gap-2 mb-6">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-          placeholder="Escribe tu ejercicio aquí… (mates, lengua, ciencias, sociales, inglés)"
-          className="flex-1 rounded border px-3 py-2 outline-none focus:ring-2 focus:ring-blue-400"
+          placeholder="Escribe tu ejercicio…"
+          className="flex-1 rounded-xl border px-4 py-3"
         />
-        <button onClick={handleSend} disabled={sending} className="rounded bg-blue-600 text-white px-4 py-2 hover:bg-blue-700 disabled:opacity-50">
-          {sending ? 'Pensando…' : 'Enviar'}
+        <button
+          type="submit"
+          disabled={loading || !input.trim()}
+          className="px-5 py-3 rounded-xl bg-blue-600 text-white disabled:opacity-50"
+        >
+          {loading ? "Pensando…" : "Pedir pistas"}
         </button>
-      </div>
+      </form>
+
+      {error && <p className="text-red-600 mb-4">{error}</p>}
+
+      {steps.length > 0 && (
+        <ol className="list-decimal ml-5 space-y-3">
+          {steps.map((s, i) => (
+            <li key={i}>
+              <p className="font-medium">{s.title}</p>
+              {s.detail && <p className="text-gray-700">{s.detail}</p>}
+            </li>
+          ))}
+        </ol>
+      )}
     </main>
   );
 }
-

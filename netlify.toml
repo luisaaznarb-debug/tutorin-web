@@ -1,0 +1,15 @@
+[build]
+  command = "npm ci && npm run build"
+  publish = ".next"
+
+[[redirects]]
+  from = "/api/health"
+  to = "https://web-production-f480.up.railway.app/health"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/solve"
+  to = "https://web-production-f480.up.railway.app/solve"
+  status = 200
+  force = true
