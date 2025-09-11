@@ -22,6 +22,14 @@ function renderWithMath(text: string) {
   });
   return <>{out}</>;
 }
+// Convierte fracciones simples "a/b" en LaTeX: $\frac{a}{b}$
+// (evita números pegados delante/detrás para no tocar fechas, etc.)
+function autoLatex(text: string) {
+  return text
+    .replace(/(?<!\d)(\d{1,3})\s*\/\s*(\d{1,3})(?!\d)/g, (_m, a, b) => `$\\frac{${a}}{${b}}$`)
+    .replace(/\*/g, " \\times "); // opcional: 3*4 → 3 \times 4
+}
+
 function splitNumbered(text: string): string[] {
   const parts = text.split(/\d\)\s/g).filter(Boolean); // divide por 1) 2) 3) ...
   return parts.length ? parts.map((t, i) => `${i + 1}) ${t.trim()}`) : [text];
