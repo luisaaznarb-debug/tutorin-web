@@ -1,7 +1,9 @@
 "use client";
 
+import "katex/dist/katex.min.css";
 import React, { useEffect, useState } from "react";
 import { InlineMath, BlockMath } from "react-katex";
+
 
 // Convierte $...$ (inline) y $$...$$ (bloque) a componentes KaTeX
 function renderWithMath(text: string) {
@@ -19,6 +21,10 @@ function renderWithMath(text: string) {
     }
   });
   return <>{out}</>;
+}
+function splitNumbered(text: string): string[] {
+  const parts = text.split(/\d\)\s/g).filter(Boolean); // divide por 1) 2) 3) ...
+  return parts.length ? parts.map((t, i) => `${i + 1}) ${t.trim()}`) : [text];
 }
 
 type Step = { text: string; imageUrl?: string };
@@ -71,10 +77,11 @@ export default function Home() {
       const data = await res.json();
       // Compatibilidad: {steps:[{text,...}]} o {reply:"..."}
       const normalized: Step[] = Array.isArray(data?.steps)
-        ? data.steps
-        : data?.reply
-        ? [{ text: String(data.reply) }]
-        : [];
+  ? data.steps
+  : data?.reply
+  ? splitNumbered(String(data.reply)).map((t) => ({ text: t }))
+  : [];
+
 
       if (!normalized.length) {
         throw new Error("Respuesta vacía del servidor.");
