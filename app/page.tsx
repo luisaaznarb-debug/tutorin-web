@@ -1,6 +1,25 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { InlineMath, BlockMath } from "react-katex";
+
+// Convierte $...$ (inline) y $$...$$ (bloque) a componentes KaTeX
+function renderWithMath(text: string) {
+  const blockParts = text.split(/\$\$([^$]+)\$\$/g);
+  const out: React.ReactNode[] = [];
+  blockParts.forEach((bp, i) => {
+    if (i % 2 === 1) {
+      out.push(<BlockMath key={`b${i}`} math={bp.trim()} />);
+    } else {
+      const inlineParts = bp.split(/\$([^$]+)\$/g);
+      inlineParts.forEach((ip, j) => {
+        if (j % 2 === 1) out.push(<InlineMath key={`i${i}-${j}`} math={ip.trim()} />);
+        else if (ip) out.push(<span key={`t${i}-${j}`}>{ip}</span>);
+      });
+    }
+  });
+  return <>{out}</>;
+}
 
 type Step = { text: string; imageUrl?: string };
 
@@ -117,7 +136,8 @@ export default function Home() {
                 className="rounded-xl border border-gray-200 p-4 shadow-sm"
               >
                 <div className="text-sm text-gray-500 mb-1">Tutorín</div>
-                <p className="leading-relaxed">{s.text}</p>
+                <div className="leading-relaxed">{renderWithMath(s.text)}</div>
+
                 {s.imageUrl && (
                   <img
                     src={s.imageUrl}
