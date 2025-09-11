@@ -2,17 +2,14 @@
   command = "npm ci && npm run build"
   publish = ".next"
 
-# health del backend (tu FastAPI expone /ping)
 [[redirects]]
   from = "/api/health"
-  to = "https://tutorin-api.up.railway.app/ping"
+  to = "https://web-production-f480.up.railway.app/ping"
   status = 200
   force = true
 
-# solve del front → /chat del backend
 [[redirects]]
   from = "/api/solve"
-  to = "https://tutorin-api.up.railway.app/chat"
+  to = "https://web-production-f480.up.railway.app/chat"
   status = 200
   force = true
-
