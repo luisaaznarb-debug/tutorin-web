@@ -1,131 +1,190 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import 'katex/dist/katex.min.css';
+import { InlineMath, BlockMath } from 'react-katex';
 
-type Role = 'user' | 'assistant';
-type Msg = { role: Role; content: string; imageUrl?: string | null };
+/* =========================================================
+   Utilidades de KaTeX
+   ========================================================= */
 
-type Step = { text: string; imageUrl?: string | null };
-type SolveResponse = { steps: Step[]; reply?: string };
-
-const hasWindow = typeof window !== 'undefined';
-const synth = hasWindow ? window.speechSynthesis : undefined;
-
-// ---- Utilidades de texto para TTS ----
-function cleanForTTS(raw: string): string {
-  let t = raw || '';
-  t = t.replace(/\u2063/g, '');           // separadores invisibles
-  t = t.replace(/```[\s\S]*?```/g, ' ');  // bloques de código
-  t = t.replace(/\$\$([\s\S]*?)\$\$/g, '$1');
-  t = t.replace(/\$([\s\S]*?)\$/g, '$1');
-  t = t.replace(/\\frac\{(\d+)\}\{(\d+)\}/g, '$1 partido por $2');
-  t = t.replace(/\\times/g, ' por ');
-  t = t.replace(/×/g, ' por ');
-  t = t.replace(/÷|\\div/g, ' entre ');
-  t = t.replace(/\^(\d+)/g, ' elevado a $1');
-  t = t.replace(/\\begin\{.*?\}|\\end\{.*?\}/g, ' ');
-  t = t.replace(/\\[a-zA-Z]+/g, ' ');
-  t = t.replace(/\s+/g, ' ').trim();
-  return t;
+function autoLatex(text: string): string {
+  // Fracciones a \frac{a}{b} (evita fechas tipo 12/09/2025)
+  const frac = text.replace(
+    /(?<!\d)(\d{1,3})\s*\/\s*(\d{1,3})(?!\d)/g,
+    (_, a, b) => `\\frac{${a}}{${b}}`
+  );
+  // x^2 -> x^{2}
+  const exp = frac.replace(/(\w)\^(\d+)/g, (_, x, n) => `${x}^{${n}}`);
+  // * a \cdot
+  const times = exp.replace(/\*/g, '\\cdot ');
+  return times;
 }
 
-function speak(text: string, voiceLang = 'es-ES', onStart?: () => void, onEnd?: () => void) {
-  if (!synth) return;
-  synth.cancel();
-  const u = new SpeechSynthesisUtterance(cleanForTTS(text));
-  u.lang = voiceLang;
-  u.rate = 1;
-  u.pitch = 1;
-  u.volume = 1;
-  if (onStart) u.onstart = onStart;
-  if (onEnd) u.onend = onEnd;
-  synth.speak(u);
+// Convierte texto con $…$ (inline) y $$…$$ (bloque) a React nodes con KaTeX
+function renderWithMath(text: string): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  // Separar por bloques $$…$$
+  const blockSplit = text.split(/\$\$([^$]+)\$\$/g);
+  blockSplit.forEach((bp, i) => {
+    if (i % 2 === 1) {
+      out.push(<BlockMath key={`b-${i}`} math={autoLatex(bp.trim())} />);
+    } else {
+      // Inline $…$
+      const inlineSplit = bp.split(/\$([^$]+)\$/g);
+      inlineSplit.forEach((ip, j) => {
+        if (j % 2 === 1) {
+          out.push(<InlineMath key={`i-${i}-${j}`} math={autoLatex(ip.trim())} />);
+        } else if (ip) {
+          out.push(<span key={`t-${i}-${j}`}>{ip}</span>);
+        }
+      });
+    }
+  });
+  return out;
 }
 
-// ---- Reconocimiento de voz ----
-type SR = SpeechRecognition & { _restarts?: number } | null;
+/* =========================================================
+   TTS (Web Speech Synthesis)
+   ========================================================= */
+function speak(text: string, lang = 'es-ES') {
+  if (typeof window === 'undefined') return;
+  try {
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = lang;
+    u.rate = 1;
+    window.speechSynthesis.speak(u);
+  } catch {
+    /* no-op */
+  }
+}
+
+/* =========================================================
+   Reconocimiento de voz (shim seguro para build)
+   ========================================================= */
+
+// No tipamos contra SpeechRecognition para que no falle la build
+type SR = (any & { _restarts?: number }) | null;
 
 function getSpeechRecognition(): SR {
-  if (!hasWindow) return null;
-  const SRCls: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-  if (!SRCls) return null;
-  const rec: any = new SRCls();
-  rec.lang = 'es-ES';
-  rec.interimResults = true;
-  rec.continuous = true;
-  rec.maxAlternatives = 1;
-  rec._restarts = 0;
-  return rec as SR;
+  if (typeof window === 'undefined') return null;
+  const Ctor: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  return Ctor ? new Ctor() : null;
 }
 
+/* =========================================================
+   Tipos y helpers de chat
+   ========================================================= */
+
+type Role = 'user' | 'assistant';
+
+type ChatMessage = {
+  role: Role;
+  text: string;
+};
+
+type Step = {
+  text: string;
+  imageUrl?: string | null;
+};
+
+type ChatResponse = {
+  steps?: Step[];
+  reply?: string | null;
+};
+
+function toHistory(messages: ChatMessage[]) {
+  // Lo que espera tu backend (role, text)
+  return messages.map(m => ({ role: m.role, text: m.text }));
+}
+
+/* =========================================================
+   Página
+   ========================================================= */
+
 export default function Page() {
-  const [messages, setMessages] = useState<Msg[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const [started, setStarted] = useState(false);
-  const [autoVoice, setAutoVoice] = useState<boolean>(() => {
-    if (!hasWindow) return false;
-    const saved = localStorage.getItem('tutorin-autovoice');
-    return saved ? saved === '1' : false;
-  });
-  const [micOn, setMicOn] = useState<boolean>(() => {
-    if (!hasWindow) return false;
-    const saved = localStorage.getItem('tutorin-mic');
-    return saved ? saved === '1' : false;
-  });
+  const [autoVoice, setAutoVoice] = useState(true);
+  const [micOn, setMicOn] = useState(false);
 
-  useEffect(() => {
-    if (!hasWindow) return;
-    localStorage.setItem('tutorin-autovoice', autoVoice ? '1' : '0');
-  }, [autoVoice]);
+  const srRef = useRef<SR>(null);
+  const startedOnce = useRef(false);
+  const listRef = useRef<HTMLDivElement>(null);
 
+  // Auto scroll
   useEffect(() => {
-    if (!hasWindow) return;
-    localStorage.setItem('tutorin-mic', micOn ? '1' : '0');
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
+  }, [messages, loading]);
+
+  // Arranque/parada del micro
+  useEffect(() => {
+    if (!micOn) {
+      try {
+        (srRef.current as any)?.stop?.();
+      } catch {}
+      return;
+    }
+    if (!startedOnce.current) return; // requiere gesto previo
+    if (!srRef.current) {
+      const sr = getSpeechRecognition();
+      if (sr) {
+        sr.lang = 'es-ES';
+        sr.interimResults = false;
+        sr.continuous = false;
+        sr.onresult = (e: any) => {
+          const transcript = e.results?.[0]?.[0]?.transcript || '';
+          if (transcript) {
+            setInput(transcript);
+            // Envía automáticamente tras dictar
+            setTimeout(() => handleSend(transcript), 200);
+          }
+        };
+        sr.onerror = () => {
+          // reintento simple
+          sr._restarts = (sr._restarts || 0) + 1;
+          if (sr._restarts < 2) {
+            try {
+              sr.stop();
+              sr.start();
+            } catch {}
+          }
+        };
+        sr.onend = () => {
+          if (micOn) {
+            try { sr.start(); } catch {}
+          }
+        };
+        srRef.current = sr as SR;
+      }
+    }
+    try {
+      (srRef.current as any)?.start?.();
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [micOn]);
 
-  // visor de imágenes
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-
-  // refs voz/mic
-  const recRef = useRef<SR>(null);
-  const supportsSR = useMemo(() => !!getSpeechRecognition(), []);
-  const speakingRef = useRef(false);
-  const micOnRef = useRef(micOn);
-  useEffect(() => { micOnRef.current = micOn; }, [micOn]);
-
-  const history = useMemo(
-    () => messages.map((m) => ({ role: m.role, content: m.content })),
-    [messages]
-  );
-
-  // leer automáticamente la última respuesta
-  const lastAssistantRef = useRef<string>('');
+  // Reproducir la última respuesta si autoVoice está activo
   useEffect(() => {
-    const last = [...messages].reverse().find((m) => m.role === 'assistant');
-    if (!last) return;
-    if (last.content === lastAssistantRef.current) return;
-    lastAssistantRef.current = last.content;
-
-    if (autoVoice) {
-      const stopMic = () => {
-        speakingRef.current = true;
-        try { recRef.current?.stop(); } catch {}
-      };
-      const resumeMic = () => {
-        speakingRef.current = false;
-        if (micOnRef.current) {
-          try { recRef.current?.start(); } catch {}
-        }
-      };
-      speak(last.content, 'es-ES', stopMic, resumeMic);
+    if (!autoVoice) return;
+    const last = [...messages].reverse().find(m => m.role === 'assistant');
+    if (last?.text) {
+      const plain = last.text.replace(/\$\$?[^$]+\$?\$/g, ''); // quita LaTeX para TTS
+      speak(plain);
     }
   }, [messages, autoVoice]);
 
-  // --- Llamada al backend ---
-  async function askTutorin(userText: string) {
+  async function handleSend(forced?: string) {
+    const userText = (forced ?? input).trim();
+    if (!userText || loading) return;
+
+    setInput('');
     setLoading(true);
+    setMessages(prev => [...prev, { role: 'user', text: userText }]);
+
     try {
       const res = await fetch('/api/solve', {
         method: 'POST',
@@ -133,245 +192,140 @@ export default function Page() {
         body: JSON.stringify({
           message: userText,
           grade: 'Primaria',
-          history,
+          history: toHistory(messages),
         }),
       });
+
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `HTTP ${res.status}`);
+        const msg = `Ups… no pude responder ahora mismo. HTTP ${res.status}`;
+        setMessages(prev => [...prev, { role: 'assistant', text: msg }]);
+      } else {
+        const data = (await res.json()) as ChatResponse;
+
+        if (data.steps && data.steps.length) {
+          // Muestra todas las pistas / pasos devueltos por el backend
+          setMessages(prev => [
+            ...prev,
+            ...data.steps!.map(s => ({ role: 'assistant' as Role, text: s.text })),
+          ]);
+        } else if (data.reply) {
+          setMessages(prev => [...prev, { role: 'assistant', text: data.reply! }]);
+        } else {
+          setMessages(prev => [
+            ...prev,
+            { role: 'assistant', text: 'No pude generar pistas esta vez.' },
+          ]);
+        }
       }
-      const data: SolveResponse = await res.json();
-      const botText = data.steps?.[0]?.text || data.reply || '...';
-      const botImg = data.steps?.[0]?.imageUrl || null;
-      setMessages((prev) => [...prev, { role: 'assistant', content: botText, imageUrl: botImg }]);
-    } catch (e: any) {
-      setMessages((prev) => [
+    } catch {
+      setMessages(prev => [
         ...prev,
-        { role: 'assistant', content: `Ups… no pude responder ahora mismo. ${e?.message || ''}` },
+        { role: 'assistant', text: 'Error de red. ¿Puedes intentarlo de nuevo?' },
       ]);
     } finally {
       setLoading(false);
     }
   }
 
-  // --- Envío manual ---
-  const onSubmit = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    const text = input.trim();
-    if (!text || loading) return;
-    if (!autoVoice) setAutoVoice(true);
-    setMessages((prev) => [...prev, { role: 'user', content: text }]);
-    setInput('');
-    await askTutorin(text);
-  };
-
-  // --- Comandos de voz ---
-  const handleVoiceCommand = async (finalText: string) => {
-    const text = finalText.trim();
-    if (!text) return;
-
-    const low = text.toLowerCase();
-    if (/(siguiente|otra pista|siguiente pista)/i.test(low)) {
-      setMessages((prev) => [...prev, { role: 'user', content: 'siguiente' }]);
-      await askTutorin('siguiente');
-      return;
+  // Primer gesto del usuario: habilita TTS/mic
+  function primeAudio() {
+    startedOnce.current = true;
+    if (autoVoice) {
+      try { speak('Hola, ¿en qué te ayudo?'); } catch {}
     }
-    if (/(repite|repíteme|repitelo|repítelo)/i.test(low)) {
-      const last = [...messages].reverse().find((m) => m.role === 'assistant');
-      if (last && autoVoice) speak(last.content);
-      return;
-    }
-
-    setMessages((prev) => [...prev, { role: 'user', content: text }]);
-    await askTutorin(text);
-  };
-
-  // --- SR control ---
-  const startSR = () => {
-    if (!supportsSR) return;
-    if (!recRef.current) recRef.current = getSpeechRecognition();
-
-    const rec = recRef.current as any;
-    if (!rec) return;
-
-    rec.onresult = (e: any) => {
-      let finalTranscript = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const r = e.results[i];
-        if (r.isFinal) finalTranscript += r[0].transcript;
-      }
-      if (finalTranscript.trim()) {
-        handleVoiceCommand(finalTranscript);
-      }
-    };
-
-    rec.onerror = () => {
-      if (micOnRef.current && !speakingRef.current) {
-        try { rec.start(); } catch {}
-      }
-    };
-
-    rec.onend = () => {
-      if (micOnRef.current && !speakingRef.current) {
-        try { rec.start(); } catch {}
-      }
-    };
-
-    try { rec.start(); } catch {}
-  };
-
-  const stopSR = () => {
-    try { recRef.current?.stop(); } catch {}
-  };
-
-  const onStartClick = async () => {
-    setStarted(true);
-    setAutoVoice(true);
-    setMicOn(true);
-    if (supportsSR) startSR();
-    setMessages([{ role: 'user', content: 'hola' }]);
-    await askTutorin('hola');
-  };
-
-  useEffect(() => {
-    if (!supportsSR) return;
-    if (micOn) startSR(); else stopSR();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [micOn]);
-
-  useEffect(() => {
-    return () => {
-      try { recRef.current?.stop(); } catch {}
-      if (synth) synth.cancel();
-    };
-  }, []);
-
-  const nextHint = async () => {
-    if (!autoVoice) setAutoVoice(true);
-    setMessages((prev) => [...prev, { role: 'user', content: 'siguiente' }]);
-    await askTutorin('siguiente');
-  };
+  }
 
   return (
-    <div className="min-h-screen bg-white text-slate-900">
-      <div className="max-w-3xl mx-auto p-6">
-        <header className="mb-4 flex items-center justify-between">
+    <main className="min-h-screen bg-white text-slate-900">
+      <div className="max-w-3xl mx-auto px-4 pt-10 pb-24">
+        <header className="flex items-center justify-between mb-6">
           <h1 className="text-3xl font-bold">Tutorín</h1>
-
-          <div className="flex items-center gap-4 text-sm">
-            <label className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
                 checked={autoVoice}
-                onChange={(e) => setAutoVoice(e.target.checked)}
+                onChange={e => setAutoVoice(e.target.checked)}
               />
               Voz auto
             </label>
-
-            <label className="flex items-center gap-2">
+            <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
                 checked={micOn}
-                onChange={(e) => setMicOn(e.target.checked)}
-                disabled={!supportsSR}
+                onChange={e => {
+                  primeAudio();
+                  setMicOn(e.target.checked);
+                }}
               />
-              Micrófono {supportsSR ? '' : '(no soportado)'}
+              Micrófono
             </label>
           </div>
         </header>
 
-        {!started && (
-          <div className="mb-6 rounded-xl border border-slate-200 p-4 bg-slate-50">
-            <p className="mb-3">
-              Pulsa <strong>Empezar</strong> para que Tutorín te salude, hable y escuche por el micrófono.
-            </p>
-            <button
-              onClick={onStartClick}
-              className="rounded-lg bg-blue-600 px-4 py-3 text-white font-medium"
-            >
-              Empezar
-            </button>
-          </div>
-        )}
+        {/* Estado API (solo decorativo) */}
+        <p className="text-sm text-green-600 mb-4">Estado API: <strong>OK</strong> ✅</p>
 
-        <div className="text-sm text-emerald-700 mb-4">
-          Estado API: <span className="font-semibold">OK ✅</span>
-        </div>
+        {/* Chat */}
+        <div
+          ref={listRef}
+          className="w-full border rounded-xl bg-slate-50 overflow-y-auto p-4 space-y-4"
+          style={{ height: 480 }}
+          onClick={primeAudio}
+        >
+          {messages.length === 0 && (
+            <div className="text-slate-500 text-sm">
+              Escribe tu ejercicio (ej.: <em>¿cuánto es 2/3 + 3/8?</em>) o usa el micrófono.
+            </div>
+          )}
 
-        {/* Conversación */}
-        <div className="space-y-4">
-          {messages.map((m, i) => (
+          {messages.map((m, idx) => (
             <div
-              key={i}
-              className={`rounded-2xl p-4 shadow-sm ${
+              key={idx}
+              className={`max-w-[85%] p-3 rounded-2xl ${
                 m.role === 'user'
-                  ? 'bg-blue-600 text-white ml-auto max-w-[80%]'
-                  : 'bg-slate-50 text-slate-900 mr-auto max-w-[90%]'
+                  ? 'ml-auto bg-blue-600 text-white'
+                  : 'mr-auto bg-white border'
               }`}
             >
-              <div className="whitespace-pre-wrap leading-relaxed">{m.content}</div>
-
-              {m.imageUrl && (
-                <div className="mt-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={m.imageUrl}
-                    alt="Ilustración de la explicación"
-                    className="max-w-full rounded-lg border border-slate-200 cursor-zoom-in"
-                    onClick={() => setPreviewUrl(m.imageUrl || null)}
-                  />
-                </div>
-              )}
+              <div className="prose prose-slate max-w-none">
+                {renderWithMath(m.text)}
+              </div>
             </div>
           ))}
+
+          {loading && (
+            <div className="mr-auto bg-white border p-3 rounded-2xl text-slate-500">
+              Pensando…
+            </div>
+          )}
         </div>
 
-        {/* Controles de texto */}
-        <form onSubmit={onSubmit} className="mt-4 flex gap-2">
+        {/* Input */}
+        <form
+          className="mt-4 flex gap-3"
+          onSubmit={e => {
+            e.preventDefault();
+            handleSend();
+          }}
+        >
           <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
+            className="flex-1 border rounded-xl px-4 py-3 outline-none"
             placeholder="Habla con el micro o escribe aquí y pulsa Enter"
-            className="flex-1 rounded-lg border border-slate-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onFocus={primeAudio}
           />
           <button
             type="submit"
-            disabled={loading || !input.trim()}
-            className="rounded-lg bg-blue-600 px-4 py-3 text-white font-medium disabled:opacity-50"
-          >
-            {loading ? 'Pensando…' : 'Enviar'}
-          </button>
-          <button
-            type="button"
-            onClick={nextHint}
+            className="px-5 py-3 rounded-xl bg-blue-600 text-white font-medium disabled:opacity-60"
             disabled={loading}
-            className="rounded-lg bg-slate-200 px-4 py-3 font-medium disabled:opacity-50"
-            title="Pide la siguiente pista sin escribir"
+            onClick={primeAudio}
           >
-            Siguiente
+            Enviar
           </button>
         </form>
-
-        <p className="mt-3 text-xs text-slate-500">
-          • La voz se activa tras tu primer gesto. El micro se pausa mientras Tutorín habla.  
-          • Comandos de voz: <em>“siguiente / otra pista / repite”</em>.
-        </p>
       </div>
-
-      {/* Visor de imagen a pantalla completa */}
-      {previewUrl && (
-        <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 cursor-zoom-out"
-          onClick={() => setPreviewUrl(null)}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={previewUrl}
-            alt="Ilustración ampliada"
-            className="max-h-[90vh] max-w-[95vw] rounded-lg shadow-2xl"
-          />
-        </div>
-      )}
-    </div>
+    </main>
   );
 }
