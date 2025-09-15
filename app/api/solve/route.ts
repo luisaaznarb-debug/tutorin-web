@@ -6,8 +6,12 @@ export async function POST(req: Request) {
     const { message, grade, history } = await req.json();
 
     const base = process.env.NEXT_PUBLIC_BACKEND_URL || '';
-    const path = process.env.NEXT_PUBLIC_BACKEND_SOLVE_PATH || '/chat';
-    const url = `${base}${path}`;
+    const path =
+      process.env.NEXT_PUBLIC_BACKEND_SOLVE_PATH ||
+      process.env.NEXT_PUBLIC_BACKEND_CHAT_PATH ||
+      '/chat';
+
+    const url = `${base.replace(/\/$/, '')}${path}`;
 
     const r = await fetch(url, {
       method: 'POST',

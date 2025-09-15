@@ -73,16 +73,16 @@ export default function Page() {
 
   // ---- comprobar salud del backend (opcional) ----
   useEffect(() => {
-    const check = async () => {
-      try {
-        const r = await fetch('/api/solve', { method: 'OPTIONS' }); // tocar el proxy
-        setApiOk(r.ok ? 'ok' : 'down');
-      } catch {
-        setApiOk('down');
-      }
-    };
-    check();
-  }, []);
+  const check = async () => {
+    try {
+      const r = await fetch('/api/health', { method: 'GET', cache: 'no-store' });
+      setApiOk(r.ok ? 'ok' : 'down');
+    } catch {
+      setApiOk('down');
+    }
+  };
+  check();
+}, []);
 
   // ---- enviar ejercicio ----
   const handleSend = useCallback(async () => {
