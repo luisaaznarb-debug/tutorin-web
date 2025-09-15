@@ -97,7 +97,7 @@ export default function Page() {
       const res = await fetch('/api/solve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ message: question }),
       });
 
       if (!res.ok) throw new Error('Error en la respuesta');
