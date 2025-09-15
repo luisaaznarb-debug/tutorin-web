@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import 'katex/dist/katex.min.css';
 import { InlineMath, BlockMath } from 'react-katex';
 
-// ---------------- Tipos ----------------
+// -------------- Tipos ----------------
 type Role = 'user' | 'assistant';
 
 type ChatMessage = {
@@ -23,324 +23,209 @@ type ChatResponse = {
   reply?: string | null;
 };
 
-// Para evitar errores de tipos durante build en Netlify
-// (el tipo real lo suministra el navegador en runtime)
-type SpeechRecognitionLike = any;
+// -------------- Utiles KaTeX ----------------
+// Convierte un texto con $$...$$ (bloque) y $...$ (inline) en nodos React con KaTeX
+function renderWithMath(text: string): React.ReactNode[] {
+  // Cortamos por bloques $$...$$
+  const blockParts = text.split(/(\$\$[^$]+\$\$)/g);
+  const out: React.ReactNode[] = [];
 
-// -------------- Helpers KaTeX --------------
-// Convierte texto con $...$ (inline) y $$...$$ (block) a nodos con KaTeX
-function renderWithMath(text: string): React.ReactNode {
-  if (!text) return null;
-
-  const parts: React.ReactNode[] = [];
-  // Primero troceamos por bloques $$...$$
-  const blockSplit = text.split(/(\$\$[^$]+\$\$)/g);
-
-  blockSplit.forEach((chunk, i) => {
-    if (/^\$\$[^$]+\$\$/.test(chunk)) {
+  blockParts.forEach((chunk, i) => {
+    if (i % 2 === 1) {
+      // Bloque $$...$$
       const math = chunk.slice(2, -2).trim();
-      parts.push(<BlockMath key={`bm-${i}`}>{math}</BlockMath>);
+      out.push(<BlockMath key={`bm-${i}`} math={math} />);
     } else {
-      // Dentro de cada trozo normal, troceamos por inline $...$
+      // Dentro del trozo "normal", buscamos inline $...$
       const inlines = chunk.split(/(\$[^$]+\$)/g);
-      inlines.forEach((p, j) => {
-        if (/^\$[^$]+\$/.test(p)) {
-          const math = p.slice(1, -1).trim();
-          parts.push(<InlineMath key={`im-${i}-${j}`}>{math}</InlineMath>);
-        } else if (p) {
-          parts.push(<span key={`t-${i}-${j}`}>{p}</span>);
+      inlines.forEach((ip, j) => {
+        if (j % 2 === 1) {
+          const m = ip.slice(1, -1).trim();
+          out.push(<InlineMath key={`im-${i}-${j}`} math={m} />);
+        } else if (ip) {
+          out.push(<span key={`tx-${i}-${j}`}>{ip}</span>);
         }
       });
     }
   });
 
-  return <>{parts}</>;
+  return out;
 }
 
-// -------------- Componente --------------
+// Quita marcas LaTeX para voz
+function stripTexForTTS(s: string): string {
+  return s.replace(/\$\$[^$]+\$\$/g, ' ')
+          .replace(/\$[^$]+\$/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+}
+
+// -------------- Componente principal ----------------
 export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [autoVoice, setAutoVoice] = useState(true);
+  const endRef = useRef<HTMLDivElement | null>(null);
 
-  // Voz automática y micrófono
-  const [voiceAuto, setVoiceAuto] = useState(true);
-  const [micOn, setMicOn] = useState(false);
+  const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
+  const SOLVE_PATH = process.env.NEXT_PUBLIC_BACKEND_SOLVE_PATH ?? '/api/solve';
+  const SOLVE_URL = `${BACKEND}${SOLVE_PATH}`;
 
-  const speakingRef = useRef(false);
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  const startedMicOnce = useRef(false);
-
-  // --------- Inicializar reconocimiento de voz (solo en navegador) ----------
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const SR =
-      (window as any).SpeechRecognition ||
-      (window as any).webkitSpeechRecognition;
+    // scroll al final
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
-    if (!SR) return;
-
-    const rec: SpeechRecognitionLike = new SR();
-    rec.lang = 'es-ES';
-    rec.continuous = true;
-    rec.interimResults = false;
-
-    rec.onresult = (ev: any) => {
-      if (speakingRef.current) return; // ignoramos mientras habla
-      const last = ev.results[ev.results.length - 1];
-      const heard = last && last[0]?.transcript ? String(last[0].transcript).trim() : '';
-      if (heard) {
-        // Para evitar eco/loops, mandamos el texto, pero el micro se pausa mientras hablamos
-        handleSend(heard);
-      }
-    };
-
-    rec.onerror = () => {
-      // errores de micro no deben romper la app
-    };
-
-    recognitionRef.current = rec;
-  }, []);
-
-  // Encender/apagar micro según toggle y estado de "speaking"
-  useEffect(() => {
-    const rec = recognitionRef.current;
-    if (!rec) return;
-
-    const safeStart = () => {
-      try { rec.start(); } catch { /* noop */ }
-    };
-    const safeStop = () => {
-      try { rec.stop(); } catch { /* noop */ }
-    };
-
-    if (micOn && !speakingRef.current) {
-      // En algunos navegadores hay que llamar a start tras un gesto
-      // La primera vez, esperamos a que el usuario pulse Enviar/hable
-      // Para simplificar, si micOn true, intentamos start siempre.
-      safeStart();
-    } else {
-      safeStop();
+  // TTS simple con SpeechSynthesis
+  function speak(text: string) {
+    try {
+      if (!autoVoice) return;
+      const utt = new SpeechSynthesisUtterance(stripTexForTTS(text));
+      utt.rate = 1.0;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utt);
+    } catch {
+      // sin bloquear ui si no hay voz
     }
-  }, [micOn, speakingRef.current]);
-
-  // --------- TTS (hablar) ----------
-  function speak(text: string): Promise<void> {
-    if (typeof window === 'undefined') return Promise.resolve();
-    const synth = window.speechSynthesis;
-    if (!synth) return Promise.resolve();
-
-    // Quitamos el contenido matemático en voz (opcional)
-    const readable = text.replace(/\$\$[^$]+\$\$|\$[^$]+\$/g, '');
-
-    return new Promise((resolve) => {
-      const u = new SpeechSynthesisUtterance(readable);
-      u.lang = 'es-ES';
-      u.rate = 1;
-      u.onstart = () => {
-        speakingRef.current = true;
-        // Al empezar a hablar, paramos el micro para evitar bucles
-        const rec = recognitionRef.current;
-        if (rec) { try { rec.stop(); } catch { /* noop */ } }
-      };
-      u.onend = () => {
-        speakingRef.current = false;
-        // Si el micro estaba activo, lo retomamos
-        if (micOn) {
-          const rec = recognitionRef.current;
-          if (rec) { try { rec.start(); } catch { /* noop */ } }
-        }
-        resolve();
-      };
-      synth.speak(u);
-    });
   }
 
-  // Hablar último mensaje si es del asistente y la voz auto está activa
-  useEffect(() => {
-    if (!voiceAuto || messages.length === 0) return;
-    const last = messages[messages.length - 1];
-    if (last.role === 'assistant' && last.text.trim()) {
-      void speak(last.text);
-    }
-  }, [messages, voiceAuto]);
+  async function handleSend(e?: React.FormEvent) {
+    e?.preventDefault();
+    const userText = input.trim();
+    if (!userText || loading) return;
 
-  // --------- Enviar ---------
-  async function handleSend(textArg?: string) {
-    const text = (textArg ?? input).trim();
-    if (!text) return;
+    // pinta el mensaje del usuario
+    setMessages(prev => [...prev, { role: 'user', text: userText }]);
     setInput('');
-
-    // Añadimos el mensaje del usuario
-    setMessages((prev) => [...prev, { role: 'user', text }]);
-
     setLoading(true);
+
     try {
-      const res = await fetch('/api/solve', {
+      const res = await fetch(SOLVE_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: text,
+          message: userText,
           grade: 'Primaria',
+          history: messages.slice(-10) // opcional
         }),
       });
 
       if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+        const err = await res.text();
+        throw new Error(err || `HTTP ${res.status}`);
       }
 
       const data: ChatResponse = await res.json();
 
-      // Normalizamos steps a mensajes de asistente y forzamos texto seguro (string)
-      const fromSteps: ChatMessage[] = (data.steps ?? [])
-        .map((s) => ({
-          role: 'assistant' as Role,
-          text: String(s?.text ?? ''),
-          imageUrl: s?.imageUrl ?? undefined,
-        }))
-        .filter((m) => m.text.trim().length > 0);
-
-      if (fromSteps.length > 0) {
-        setMessages((prev) => [...prev, ...fromSteps]);
+      if (data.steps && data.steps.length > 0) {
+        const assistantMsgs: ChatMessage[] = data.steps.map((s) => ({
+          role: 'assistant',
+          text: s.text ?? '',
+        }));
+        setMessages(prev => [...prev, ...assistantMsgs]);
+        // lee únicamente la primera pista para evitar “bucle”
+        speak(assistantMsgs[0].text);
       } else if (typeof data.reply === 'string' && data.reply.trim().length > 0) {
-        setMessages((prev) => [
-          ...prev,
-          { role: 'assistant', text: data.reply.trim() },
-        ]);
+        const reply = data.reply;
+        setMessages(prev => [...prev, { role: 'assistant', text: reply }]);
+        speak(reply);
       } else {
-        setMessages((prev) => [
+        // respuesta vacía
+        setMessages(prev => [
           ...prev,
-          {
-            role: 'assistant',
-            text: 'No pude generar pistas esta vez.',
-          },
+          { role: 'assistant', text: 'No tengo una pista para eso todavía 😅' },
         ]);
       }
-    } catch (e: any) {
-      setMessages((prev) => [
+    } catch (err: any) {
+      setMessages(prev => [
         ...prev,
-        {
-          role: 'assistant',
-          text: `Ups… no pude responder ahora mismo. ${e?.message ?? ''}`.trim(),
-        },
+        { role: 'assistant', text: `Ups… no pude responder ahora mismo. ${err?.message ?? ''}` },
       ]);
     } finally {
       setLoading(false);
     }
   }
 
-  // Enviar con Enter
-  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      void handleSend();
-    }
-  }
-
-  // --------- UI ---------
   return (
-    <main className="mx-auto max-w-3xl p-6">
-      <h1 className="text-4xl font-bold mb-4">Tutorín</h1>
+    <main className="mx-auto max-w-3xl px-4 py-10">
+      <h1 className="text-4xl font-bold mb-3">Tutorín</h1>
 
-      <div className="text-sm mb-4 flex items-center gap-4">
-        <span>
-          Estado API: <span className="text-green-600 font-semibold">OK</span> ✅
-        </span>
-        <label className="inline-flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={voiceAuto}
-            onChange={(e) => setVoiceAuto(e.target.checked)}
-          />
-          Voz auto
-        </label>
-        <label className="inline-flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={micOn}
-            onChange={(e) => {
-              setMicOn(e.target.checked);
-              startedMicOnce.current = true;
-            }}
-          />
-          Micrófono
-        </label>
-      </div>
+      {/* estado de API (simple ping) */}
+      <ApiStatus url={BACKEND ? `${BACKEND}/ping` : '/api/health'} />
 
-      <section
-        className="border rounded-xl p-4 h-[64vh] overflow-y-auto bg-white"
-        aria-live="polite"
-      >
-        {messages.length === 0 && (
-          <p className="text-gray-500">
-            Escribe un ejercicio o dile a Tutorín qué necesitas. Ej.:{' '}
-            <em>“¿Cuáles son los múltiplos comunes de 4 y 6?”</em>
-          </p>
-        )}
-
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={`my-3 flex ${
-              m.role === 'user' ? 'justify-end' : 'justify-start'
-            }`}
-          >
+      <div className="border rounded-xl bg-white">
+        <div className="p-4 space-y-4 max-h-[60vh] overflow-y-auto">
+          {messages.map((m, idx) => (
             <div
-              className={`max-w-[80%] rounded-2xl px-4 py-3 shadow-sm ${
-                m.role === 'user'
-                  ? 'bg-blue-600 text-white rounded-br-sm'
-                  : 'bg-gray-100 text-gray-900 rounded-bl-sm'
+              key={idx}
+              className={`whitespace-pre-wrap rounded-lg px-3 py-2 ${
+                m.role === 'user' ? 'bg-blue-600 text-white self-end' : 'bg-gray-100'
               }`}
             >
-              <div className="prose prose-sm max-w-none">
-                {renderWithMath(m.text)}
-              </div>
-              {m.imageUrl && (
-                <div className="mt-2">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={m.imageUrl}
-                    alt="Ilustración del paso"
-                    className="rounded-lg max-h-64"
-                  />
-                </div>
-              )}
+              {m.role === 'assistant' ? renderWithMath(m.text) : m.text}
             </div>
-          </div>
-        ))}
+          ))}
+          <div ref={endRef} />
+        </div>
 
-        {loading && (
-          <div className="text-gray-500 text-sm mt-2">Pensando…</div>
-        )}
-      </section>
-
-      <form
-        className="mt-4 flex gap-2 items-center"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void handleSend();
-        }}
-      >
-        <input
-          className="flex-1 border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="Habla con el micro o escribe aquí y pulsa Enter"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={onKeyDown}
-        />
-        <button
-          type="submit"
-          className="bg-blue-600 text-white font-semibold px-5 py-3 rounded-xl hover:bg-blue-700 transition"
-          disabled={loading}
-        >
-          Enviar
-        </button>
-      </form>
-
-      <p className="text-xs text-gray-500 mt-2">
-        • La voz se pausa mientras Tutorín habla para evitar bucles. • Comandos
-        de voz (libres): puedes decir tu respuesta o pedir más pistas.
-      </p>
+        <form onSubmit={handleSend} className="p-3 border-t flex gap-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Escribe tu ejercicio y pulsa Enter"
+            className="flex-1 rounded-md border px-3 py-2"
+          />
+          <button
+            type="submit"
+            disabled={loading}
+            className="rounded-md bg-blue-600 text-white px-4 py-2 disabled:opacity-60"
+          >
+            {loading ? 'Pensando…' : 'Enviar'}
+          </button>
+          <label className="ml-3 inline-flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={autoVoice}
+              onChange={(e) => setAutoVoice(e.target.checked)}
+            />
+            Voz auto
+          </label>
+        </form>
+      </div>
     </main>
+  );
+}
+
+// --------- Componente pequeño para mostrar estado de backend ----------
+function ApiStatus({ url }: { url: string }) {
+  const [ok, setOk] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function ping() {
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        setOk(!cancelled && res.ok);
+      } catch {
+        setOk(false);
+      }
+    }
+    ping();
+    // refresco simple al montar
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url]);
+
+  return (
+    <p className="mb-4 text-sm">
+      Estado API:{' '}
+      {ok === null ? (
+        <span>…</span>
+      ) : ok ? (
+        <span className="text-green-600 font-semibold">OK ✅</span>
+      ) : (
+        <span className="text-red-600 font-semibold">No conecta ❌</span>
+      )}
+    </p>
   );
 }
