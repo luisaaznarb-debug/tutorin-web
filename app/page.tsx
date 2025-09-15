@@ -1,4 +1,4 @@
-''use client';
+"use client";
 
 import React, { useEffect, useRef, useState } from 'react';
 import 'katex/dist/katex.min.css';
@@ -84,15 +84,12 @@ export default function Page() {
 
       u.onstart = () => {
         speakingRef.current = true;
-        // Parar reconocimiento mientras habla
         try { (srRef.current as any)?.stop?.(); } catch {}
       };
 
       u.onend = () => {
         speakingRef.current = false;
-        // Valla de tiempo anti-eco (evita “colas” del TTS)
         speakFenceUntil.current = Date.now() + 800;
-        // Reanudar micro si estaba activo
         if (micOn) {
           try { (srRef.current as any)?.start?.(); } catch {}
         }
@@ -128,22 +125,17 @@ export default function Page() {
           const transcript = e.results?.[0]?.[0]?.transcript || '';
           const now = Date.now();
 
-          // 1) Si aún estamos en valla post-TTS, ignorar
           if (now < speakFenceUntil.current) return;
-
-          // 2) Si por algún motivo llegó resultado mientras habla, ignorar
           if (speakingRef.current) return;
 
-          // 3) Anti-eco: comparar con último mensaje del asistente
           const lastA = [...messages].reverse().find(m => m.role === 'assistant')?.text?.toLowerCase() || '';
           const t = transcript.toLowerCase().trim();
           if (lastA && t && lastA.slice(0, 35) === t.slice(0, 35)) {
-            return; // muy parecido: suena a eco del TTS
+            return; // anti-eco
           }
 
           if (t) {
             setInput(t);
-            // Envío automático tras dictado
             setTimeout(() => handleSend(t), 150);
           }
         };
@@ -156,7 +148,6 @@ export default function Page() {
         };
 
         sr.onend = () => {
-          // Si el micro sigue activado y no estamos hablando, reintenta
           if (micOn && !speakingRef.current) {
             try { sr.start(); } catch {}
           }
@@ -170,7 +161,7 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [micOn, messages]);
 
-  // --------------------- Voz automática de la última respuesta ---------------------
+  // --------------------- Voz automática ---------------------
   useEffect(() => {
     if (!autoVoice) return;
     const last = [...messages].reverse().find(m => m.role === 'assistant');
