@@ -23,47 +23,52 @@ type ChatResponse = {
   reply?: string | null;
 };
 
-// ---------- KaTeX render ----------
-function renderText(t: string) {
-  const parts: React.ReactNode[] = [];
-  const blocks = t.split(/(\$\$[^$]+\$\$)/g);
+// ---------- Util: KaTeX ----------
+function renderWithKatex(text: string) {
+  const out: React.ReactNode[] = [];
+  let i = 0;
 
-  blocks.forEach((chunk, i) => {
-    if (/^\$\$[^$]+\$\$/.test(chunk)) {
+  // $$ ... $$ -> bloque
+  const parts = text.split(/(\$\$[^$]+\$\$)/g);
+  for (const chunk of parts) {
+    if (!chunk) continue;
+
+    if (/^\$\$[^$]+\$\$$/.test(chunk)) {
       const math = chunk.slice(2, -2).trim();
-      parts.push(<BlockMath key={`bm-${i}`} math={math} />);
+      out.push(<BlockMath key={`bm-${i++}`} math={math} />);
     } else {
+      // $ ... $ -> inline
       const inlines = chunk.split(/(\$[^$]+\$)/g);
-      inlines.forEach((c, j) => {
-        if (/^\$[^$]+\$/.test(c)) {
-          parts.push(<InlineMath key={`im-${i}-${j}`} math={c.slice(1, -1).trim()} />);
-        } else if (c) {
-          parts.push(<span key={`t-${i}-${j}`}>{c}</span>);
+      for (const piece of inlines) {
+        if (!piece) continue;
+        if (/^\$[^$]+\$/.test(piece)) {
+          const math = piece.slice(1, -1).trim();
+          out.push(<InlineMath key={`im-${i++}`} math={math} />);
+        } else {
+          out.push(<span key={`t-${i++}`}>{piece}</span>);
         }
-      });
+      }
     }
-  });
-
-  return parts;
+  }
+  return out;
 }
 
-// ---------- UI ----------
 export default function Page() {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function sendMessage(userText?: string) {
     const msg = (userText ?? text).trim();
     if (!msg) return;
 
-    setBusy(true);
+    // pinta el mensaje del usuario
     setMessages(prev => [...prev, { role: 'user', text: msg }]);
     setText('');
+    setBusy(true);
 
     try {
-      // IMPORTANTE: llamar al proxy local de Netlify
       const res = await fetch('/api/solve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -74,19 +79,23 @@ export default function Page() {
         const errTxt = await res.text().catch(() => '');
         setMessages(prev => [
           ...prev,
-          { role: 'assistant', text: `Ups… no pude responder ahora mismo. ${errTxt || `HTTP ${res.status}`}` },
+          { role: 'assistant', text: `Ups… no pude responder ahora mismo. ${errTxt || 'HTTP ' + res.status}` },
         ]);
         return;
-      }
+        }
 
-      const data = (await res.json()) as ChatResponse;
+      const data: ChatResponse = await res.json();
 
-      const stepMsgs: ChatMessage[] =
-        (data.steps ?? []).map(s => ({ role: 'assistant', text: s.text, imageUrl: s.imageUrl ?? null }));
+      // normaliza tipos aquí
+      const stepMsgs: ChatMessage[] = (data.steps ?? []).map(s => ({
+        role: 'assistant',
+        text: s?.text ?? '',           // <- string garantizado
+        imageUrl: s?.imageUrl ?? null, // <- null permitido
+      }));
 
       if (stepMsgs.length) {
         setMessages(prev => [...prev, ...stepMsgs]);
-      } else if (data.reply) {
+      } else if (typeof data.reply === 'string') {
         setMessages(prev => [...prev, { role: 'assistant', text: data.reply }]);
       } else {
         setMessages(prev => [...prev, { role: 'assistant', text: 'No hay respuesta del servidor.' }]);
@@ -99,39 +108,46 @@ export default function Page() {
     }
   }
 
-  function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    void sendMessage();
-  }
-
   return (
     <div className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-4xl font-bold mb-6">Tutorín</h1>
+      <h1 className="text-3xl font-bold mb-4">Tutorín</h1>
 
-      <div className="space-y-3 mb-4">
+      {/* Mensajes */}
+      <div className="flex flex-col gap-3 mb-4">
         {messages.map((m, i) => (
           <div
             key={i}
-            className={`rounded-lg px-4 py-3 ${
-              m.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100'
-            }`}
+            className={
+              m.role === 'user'
+                ? 'self-end bg-blue-600 text-white rounded px-3 py-2'
+                : 'self-start bg-gray-100 text-black rounded px-3 py-2'
+            }
           >
-            <div className="prose max-w-none">{renderText(m.text)}</div>
-            {m.imageUrl && <img className="mt-3 max-w-full" src={m.imageUrl} alt="" />}
+            <div>{renderWithKatex(m.text)}</div>
+            {m.imageUrl ? (
+              <img src={m.imageUrl} alt="" className="mt-2 max-w-xs rounded" />
+            ) : null}
           </div>
         ))}
       </div>
 
-      <form onSubmit={onSubmit} className="flex gap-2">
+      {/* Formulario */}
+      <form
+        onSubmit={e => {
+          e.preventDefault();
+          sendMessage();
+        }}
+        className="mt-4 flex gap-2"
+      >
         <input
           ref={inputRef}
           className="flex-1 border rounded px-3 py-2"
-          placeholder="Escribe tu ejercicio y pulsa Enter"
+          placeholder="Escribe tu ejercicio y pulsa Enter. Ej.: ¿cuánto es 2/3 + 5/8?"
           value={text}
           onChange={e => setText(e.target.value)}
           disabled={busy}
         />
-        <button className="px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-50" disabled={busy} type="submit">
+        <button type="submit" className="px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-50" disabled={busy}>
           {busy ? 'Pensando…' : 'Enviar'}
         </button>
       </form>
