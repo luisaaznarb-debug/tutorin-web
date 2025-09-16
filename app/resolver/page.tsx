@@ -69,11 +69,11 @@ export default function Page() {
     setBusy(true);
 
     try {
-      const res = await fetch('/api/solve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg }),
-      });
+      const res = await fetch('/backend/solve', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ message: msg }),
+});
 
       if (!res.ok) {
         const errTxt = await res.text().catch(() => '');

@@ -2,15 +2,16 @@
   command = "npm ci && npm run build"
   publish = ".next"
 
+# Proxy para resolver
 [[redirects]]
-  from = "/api/solve"
-  to = "${NEXT_PUBLIC_BACKEND_URL}${NEXT_PUBLIC_BACKEND_SOLVE_PATH}"
+  from = "/backend/solve"
+  to   = "https://web-production-f480.up.railway.app/chat"
   status = 200
   force = true
 
-# Salud
+# Comprobación de salud
 [[redirects]]
-  from = "/api/health"
-  to = "${NEXT_PUBLIC_BACKEND_URL}/ping"
+  from = "/backend/health"
+  to   = "https://web-production-f480.up.railway.app/ping"
   status = 200
   force = true
