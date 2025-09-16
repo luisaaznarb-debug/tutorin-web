@@ -1,11 +1,10 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import Image from 'next/image';
 import 'katex/dist/katex.min.css';
 import { InlineMath, BlockMath } from 'react-katex';
 
-// ----------- Tipos -----------
+// ---------- Tipos ----------
 type Role = 'user' | 'assistant';
 
 type ChatMessage = {
@@ -24,71 +23,55 @@ type ChatResponse = {
   reply?: string | null;
 };
 
-// ----------- Util: partir un texto con KaTeX -----------
-/**
- * Divide el texto en partes y devuelve elementos React con KaTeX.
- * Soporta:
- *  - $$ ... $$  -> bloque
- *  - $ ... $    -> inline
- */
+// ---------- Render KaTeX ----------
 function renderWithKatexPieces(text: string, keyPrefix = 'p') {
   if (!text) return null;
 
-  const parts: React.ReactNode[] = [];
-  // 1) separamos por bloques $$...$$
+  const nodes: React.ReactNode[] = [];
   const chunks = text.split(/(\$\$[^$]+\$\$)/g);
 
   chunks.forEach((chunk, i) => {
     if (!chunk) return;
 
-    // Bloque
+    // $$ ... $$ -> bloque
     if (/^\$\$[^$]+\$\$/.test(chunk)) {
       const math = chunk.slice(2, -2).trim();
-      // ✅ KaTeX en bloque: usar prop `math` (NO children)
-      parts.push(<BlockMath key={`bm-${i}`} math={math} />);
+      nodes.push(<BlockMath key={`bm-${i}`} math={math} />);
     } else {
-      // 2) dentro del texto normal, separamos por inline $...$
+      // dentro, $ ... $ -> inline
       const inlines = chunk.split(/(\$[^$]+\$)/g);
       inlines.forEach((piece, j) => {
         if (!piece) return;
 
         if (/^\$[^$]+\$/.test(piece)) {
           const math = piece.slice(1, -1).trim();
-          // ✅ KaTeX inline: también con prop `math`
-          parts.push(<InlineMath key={`${keyPrefix}-im-${i}-${j}`} math={math} />);
+          nodes.push(<InlineMath key={`${keyPrefix}-im-${i}-${j}`} math={math} />);
         } else {
-          parts.push(
-            <span key={`${keyPrefix}-tx-${i}-${j}`}>
-              {piece}
-            </span>
-          );
+          nodes.push(<span key={`${keyPrefix}-tx-${i}-${j}`}>{piece}</span>);
         }
       });
     }
   });
 
-  return <>{parts}</>;
+  return <>{nodes}</>;
 }
 
-// ----------- Componente principal -----------
+// ---------- Página ----------
 export default function Page() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // URL del backend desde variable de entorno pública
-  const backend = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
-  const solvePath = process.env.NEXT_PUBLIC_BACKEND_SOLVE_PATH ?? '/chat';
-  const endpoint = useMemo(() => `${backend}${solvePath}`, [backend, solvePath]);
-
-  // Enviar
+  // Usamos el proxy local /api/solve (Next.js)
   async function sendMessage(userText?: string) {
     const msg = (userText ?? text).trim();
     if (!msg || busy) return;
 
     setBusy(true);
-    setMessages(prev => [...prev, { role: 'user', text: msg }]);
+
+    const userMsg: ChatMessage = { role: 'user', text: msg };
+    setMessages(prev => [...prev, userMsg]);
     setText('');
 
     try {
@@ -99,38 +82,50 @@ export default function Page() {
       });
 
       if (!res.ok) {
-        const err = await res.text().catch(() => '');
-        setMessages(prev => [
-          ...prev,
-          { role: 'assistant', text: `Ups… no pude responder ahora mismo. ${err || 'HTTP ' + res.status}` }
-        ]);
+        const errTxt = await res.text().catch(() => '');
+        const errMsg: ChatMessage = {
+          role: 'assistant',
+          text: `Ups… no pude responder ahora mismo. ${errTxt || 'HTTP ' + res.status}`,
+        };
+        setMessages(prev => [...prev, errMsg]);
         return;
-      }
+        }
 
       const data: ChatResponse = await res.json();
 
-      if (data.steps && data.steps.length) {
-        setMessages(prev => [
-          ...prev,
-          ...data.steps.map(s => ({ role: 'assistant', text: s.text ?? '', imageUrl: s.imageUrl ?? null }))
-        ]);
-      } else if (typeof data.reply === 'string') {
-        // ✅ Aseguramos siempre string
-        setMessages(prev => [
-          ...prev,
-          { role: 'assistant', text: data.reply ?? '' }
-        ]);
-      } else {
-        setMessages(prev => [
-          ...prev,
-          { role: 'assistant', text: 'No tengo pistas por ahora, ¿me lo repites de otra forma?' }
-        ]);
+      // 1) Pasos (si hay)
+      if (Array.isArray(data.steps) && data.steps.length > 0) {
+        const mapped: ChatMessage[] = data.steps.map((s): ChatMessage => ({
+          role: 'assistant',
+          text: s?.text ?? '',
+          imageUrl: s?.imageUrl ?? null,
+        }));
+        setMessages(prev => [...prev, ...mapped]);
+      }
+
+      // 2) Respuesta final (si hay)
+      if (typeof data.reply === 'string') {
+        const botMsg: ChatMessage = {
+          role: 'assistant',
+          text: data.reply ?? '',
+        };
+        setMessages(prev => [...prev, botMsg]);
+      }
+
+      // 3) Si no hubo nada, ponemos un fallback
+      if ((!data.steps || data.steps.length === 0) && !data.reply) {
+        const fallback: ChatMessage = {
+          role: 'assistant',
+          text: 'No tengo pistas por ahora, ¿puedes repetirlo de otra forma?',
+        };
+        setMessages(prev => [...prev, fallback]);
       }
     } catch (e: any) {
-      setMessages(prev => [
-        ...prev,
-        { role: 'assistant', text: `Error de red: ${String(e?.message || e)}` }
-      ]);
+      const errMsg: ChatMessage = {
+        role: 'assistant',
+        text: `Error de red: ${String(e?.message || e)}`,
+      };
+      setMessages(prev => [...prev, errMsg]);
     } finally {
       setBusy(false);
       inputRef.current?.focus();
@@ -150,14 +145,17 @@ export default function Page() {
         {messages.map((m, i) => (
           <div
             key={i}
-            className={`rounded-md px-3 py-2 ${m.role === 'user' ? 'bg-blue-600 text-white ml-auto w-fit' : 'bg-gray-100'}`}
+            className={`rounded-md px-3 py-2 ${
+              m.role === 'user'
+                ? 'bg-blue-600 text-white ml-auto w-fit'
+                : 'bg-gray-100'
+            }`}
           >
             <div className="prose max-w-none">
               {renderWithKatexPieces(m.text, `m${i}`)}
             </div>
             {m.imageUrl ? (
               <div className="mt-2">
-                {/* si te devuelvo imágenes, aquí se muestran */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={m.imageUrl} alt="ilustración" className="max-h-64 rounded" />
               </div>
