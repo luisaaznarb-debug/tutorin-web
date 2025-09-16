@@ -96,7 +96,7 @@ export default function Page() {
       if (stepMsgs.length) {
         setMessages(prev => [...prev, ...stepMsgs]);
       } else if (typeof data.reply === 'string') {
-        setMessages(prev => [...prev, { role: 'assistant', text: data.reply }]);
+       setMessages(prev => [...prev, { role: 'assistant', text: data.reply ?? '' }]);
       } else {
         setMessages(prev => [...prev, { role: 'assistant', text: 'No hay respuesta del servidor.' }]);
       }
