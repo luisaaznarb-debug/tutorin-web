@@ -10,7 +10,7 @@ interface AACPanelProps {
   setGrade: (grade: string) => void;
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   setBusy: (busy: boolean) => void;
-  inputRef: RefObject<HTMLInputElement>;
+  inputRef: RefObject<HTMLInputElement> | null;
   setText: (text: string) => void;
   sendMessage: (text?: string) => void;
 }

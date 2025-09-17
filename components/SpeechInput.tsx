@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, RefObject } from 'react';
 import useSpeechRecognition from '@/hooks/useSpeechRecognition';
 import { ChatMessage } from '@/types/chat';
 
 interface SpeechInputProps {
   onCommand: (cmd: string) => void;
   lastAssistantMessage: string;
-  inputRef: React.RefObject<HTMLInputElement>;
+  inputRef: RefObject<HTMLInputElement> | null;
   setText: (text: string) => void;
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   setBusy: (busy: boolean) => void;
