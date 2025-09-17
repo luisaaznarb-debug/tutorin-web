@@ -3,44 +3,64 @@
 import { useRef, useState } from "react";
 import AACPanel from "@/components/AACPanel";
 import { useSearchParams } from "next/navigation";
+import type { ChatMessage, CoachResponse } from "@/types/chat";
+import CoachTurn from "@/components/CoachTurn";
+import { chatCoach } from "@/lib/api";
 
-export type ChatMessage = { role: "user" | "assistant" | "system"; content: string };
+type Turn =
+  | { role: "user"; text: string }
+  | { role: "assistant"; coach: CoachResponse };
 
 export default function Page() {
   const [text, setText] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [grade, setGrade] = useState("1º");
+  const [thread, setThread] = useState<Turn[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]); // historial “clásico” para el backend
 
-  // 👇 El ref inicia en null
   const inputRef = useRef<HTMLInputElement | null>(null);
-
   const searchParams = useSearchParams();
   const subject = searchParams?.get("subject") ?? "general";
 
   const lastAssistantMessage =
-    messages[messages.length - 1]?.role === "assistant"
-      ? messages[messages.length - 1].content
+    thread.length && thread[thread.length - 1].role === "assistant"
+      ? (thread[thread.length - 1] as any).coach.blocks
+          .map((b: any) => b.text)
+          .join(" ")
       : "";
 
-  const sendMessage = async (forcedText?: string) => {
-    const payload = (forcedText ?? text).trim();
+  const sendMessage = async (forced?: string) => {
+    const payload = (forced ?? text).trim();
     if (!payload) return;
 
     setBusy(true);
-    setMessages((prev) => [...prev, { role: "user", content: payload }]);
     setText("");
+    setThread((t) => [...t, { role: "user", text: payload }]);
+    const nextMessages: ChatMessage[] = [
+      ...messages,
+      { role: "user", content: payload },
+    ];
+    setMessages(nextMessages);
 
     try {
-      // TODO: reemplazar por tu fetch real al backend en Railway
-      const reply = `Recibí tu mensaje sobre "${subject}" (grado ${grade}): ${payload}`;
-      setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
-    } catch {
+      const coach = await chatCoach({
+        messages: nextMessages,
+        subject,
+        grade,
+        maxHints: 2,
+      });
+      setThread((t) => [...t, { role: "assistant", coach }]);
+      // guardamos un mensaje “plano” solo por historial
       setMessages((prev) => [
         ...prev,
+        { role: "assistant", content: coach.blocks.map((b) => b.text).join("\n") },
+      ]);
+    } catch (e: any) {
+      setThread((t) => [
+        ...t,
         {
           role: "assistant",
-          content: "Ups, hubo un problema al contactar con el servidor.",
+          coach: { blocks: [{ type: "answer", text: "Ups, hubo un problema con el servidor." }] },
         },
       ]);
     } finally {
@@ -96,21 +116,26 @@ export default function Page() {
       </section>
 
       <section className="rounded-2xl border bg-white shadow-soft">
-        <div className="p-5 md:p-6">
-          <h2 className="text-lg font-semibold mb-3">Conversación</h2>
-          <ul className="space-y-3">
-            {messages.map((m, i) => (
-              <li key={i} className="rounded-xl border p-3">
-                <div className="text-xs uppercase tracking-wide text-slate-500">{m.role}</div>
-                <div className="mt-1">{m.content}</div>
-              </li>
-            ))}
-            {messages.length === 0 && (
-              <li className="text-slate-600">
-                Aún no hay mensajes. ¡Escribe tu primera pregunta! 😊
-              </li>
+        <div className="p-5 md:p-6 space-y-4">
+          <h2 className="text-lg font-semibold">Conversación</h2>
+          {thread.length === 0 && (
+            <p className="text-slate-600">Aún no hay mensajes. ¡Escribe tu primera pregunta! 😊</p>
+          )}
+          <div className="space-y-6">
+            {thread.map((t, i) =>
+              t.role === "user" ? (
+                <div key={i} className="rounded-xl border p-3 bg-slate-50">
+                  <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">User</div>
+                  <div>{t.text}</div>
+                </div>
+              ) : (
+                <div key={i} className="rounded-xl border p-3">
+                  <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Tutorin</div>
+                  <CoachTurn blocks={t.coach.blocks} />
+                </div>
+              )
             )}
-          </ul>
+          </div>
         </div>
       </section>
 

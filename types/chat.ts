@@ -1,19 +1,13 @@
-// types/chat.ts
+export type ChatMessage = {
+  role: "user" | "assistant" | "system";
+  content: string;
+};
 
-export type Role = 'user' | 'assistant';
-
-export interface ChatMessage {
-  role: Role;
+export type CoachBlock = {
+  type: "question" | "hint" | "answer";
   text: string;
-  imageUrl?: string | null;
-}
+};
 
-export interface Step {
-  text: string;
-  imageUrl?: string | null;
-}
-
-export interface ChatResponse {
-  steps?: Step[];
-  audioUrl?: string | null;
-}
+export type CoachResponse = {
+  blocks: CoachBlock[];
+};
