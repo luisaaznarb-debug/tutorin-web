@@ -1,5 +1,3 @@
-'use client';
-
 import React, { RefObject } from 'react';
 import SpeechInput from './SpeechInput';
 import { ChatMessage } from '@/types/chat';
@@ -11,7 +9,7 @@ interface AACPanelProps {
   setGrade: (grade: string) => void;
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   setBusy: (busy: boolean) => void;
-  inputRef: React.RefObject<HTMLInputElement>; // ✅ Corregido
+  inputRef: RefObject<HTMLInputElement>;
   setText: (text: string) => void;
   sendMessage: (text?: string) => void;
 }
@@ -28,16 +26,16 @@ export default function AACPanel({
   sendMessage,
 }: AACPanelProps) {
   return (
-    <div className="mt-6 space-y-2">
-      <div>
-        <label htmlFor="grade" className="text-sm font-medium text-gray-700">
-          Nivel:
+    <div className="mt-6">
+      <div className="mb-2">
+        <label htmlFor="grade" className="text-sm font-semibold">
+          Curso
         </label>
         <select
           id="grade"
-          className="ml-2 border rounded px-2 py-1"
           value={grade}
           onChange={(e) => setGrade(e.target.value)}
+          className="ml-2 border rounded px-2 py-1 text-sm"
         >
           <option value="1º">1º</option>
           <option value="2º">2º</option>

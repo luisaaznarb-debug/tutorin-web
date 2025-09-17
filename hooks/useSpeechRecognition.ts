@@ -1,24 +1,38 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-export type OnResultCallback = (finalText: string) => void;
+interface Transcript {
+  transcript: string;
+  confidence: number;
+  isFinal: boolean;
+}
 
-export function useSpeechRecognition(onResult: OnResultCallback, lang = 'es-ES', autoStart = false) {
-  const recognitionRef = typeof window !== 'undefined' ? (window as any).webkitSpeechRecognition
-    ? new (window as any).webkitSpeechRecognition()
-    : null
-    : null;
+interface UseSpeechRecognitionOptions {
+  onResult: (transcript: string) => void;
+}
+
+export default function useSpeechRecognition({ onResult }: UseSpeechRecognitionOptions) {
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
 
   useEffect(() => {
-    if (!recognitionRef) return;
+    if (typeof window === 'undefined') return;
 
-    const recognition: SpeechRecognition = recognitionRef;
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      console.warn('SpeechRecognition API is not supported in this browser.');
+      return;
+    }
+
+    const recognition: SpeechRecognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = lang;
-
-    const results: { transcript: string; confidence: number; isFinal: boolean }[] = [];
+    recognition.lang = 'es-ES';
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
+      const results: Transcript[] = [];
+
       for (let i = 0; i < event.results.length; i++) {
         const res = event.results[i][0];
         results.push({
@@ -34,21 +48,22 @@ export function useSpeechRecognition(onResult: OnResultCallback, lang = 'es-ES',
       }
     };
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      console.error('Speech recognition error:', event.error);
-    };
+    recognitionRef.current = recognition;
+  }, [onResult]);
 
-    if (autoStart) {
-      recognition.start();
+  const start = () => {
+    if (recognitionRef.current && !isRecording) {
+      recognitionRef.current.start();
+      setIsRecording(true);
     }
-
-    return () => {
-      recognition.stop();
-    };
-  }, [lang, onResult, autoStart]);
-
-  return {
-    startListening: () => recognitionRef?.start?.(),
-    stop: () => recognitionRef?.stop?.(),
   };
+
+  const stop = () => {
+    if (recognitionRef.current && isRecording) {
+      recognitionRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  return { start, stop, isRecording };
 }

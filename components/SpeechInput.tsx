@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useEffect } from 'react';
-import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
+import { useEffect } from 'react';
+import useSpeechRecognition from '@/hooks/useSpeechRecognition';
 import { ChatMessage } from '@/types/chat';
 
-export interface SpeechInputProps {
+interface SpeechInputProps {
   onCommand: (cmd: string) => void;
   lastAssistantMessage: string;
   inputRef: React.RefObject<HTMLInputElement>;
@@ -23,50 +23,39 @@ export default function SpeechInput({
   setBusy,
   sendMessage,
 }: SpeechInputProps) {
-  const { startListening } = useSpeechRecognition((finalText) => {
-    if (!finalText) return;
+  const { start, stop, isRecording } = useSpeechRecognition({
+    onResult: (finalText: string) => {
+      const trimmed = finalText.trim().toLowerCase();
+      if (!trimmed) return;
 
-    setText(finalText);
-    setMessages((prev) => [...prev, { role: 'user', text: finalText }]);
-    setBusy(true);
+      const commandPrefixes = ['escribe', 'resolver', 'pregunta', 'calcula'];
+      const found = commandPrefixes.find((prefix) =>
+        trimmed.startsWith(prefix)
+      );
 
-    fetch('/backend/solve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: finalText }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        const steps: ChatMessage[] = (data.steps ?? []).map((s: any) => ({
-          role: 'assistant',
-          text: s?.text ?? '',
-          imageUrl: s?.imageUrl ?? null,
-        }));
-
-        setMessages((prev) => [...prev, ...steps]);
-      })
-      .catch((err) => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: 'assistant',
-            text: `Error al obtener respuesta: ${err.message}`,
-          },
-        ]);
-      })
-      .finally(() => {
-        setBusy(false);
-        inputRef.current?.focus();
-      });
+      if (found) {
+        const command = trimmed.slice(found.length).trim();
+        if (command) {
+          onCommand(command);
+        }
+      }
+    },
   });
 
   useEffect(() => {
-    if (!lastAssistantMessage) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F9') {
+        if (isRecording) {
+          stop();
+        } else {
+          start();
+        }
+      }
+    };
 
-    if (lastAssistantMessage.includes('¿Qué más quieres resolver?')) {
-      startListening();
-    }
-  }, [lastAssistantMessage, startListening]);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isRecording, start, stop]);
 
   return null;
 }
