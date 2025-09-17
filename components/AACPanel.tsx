@@ -1,19 +1,24 @@
-'use client';
-import React, { RefObject } from 'react';
-import SpeechInput from './SpeechInput';
-import { ChatMessage } from '@/types/chat';
+"use client";
+
+import React, { useState } from "react";
+import { Button } from "@/components/ui/button";
+import type { ChatMessage } from "@/app/resolver/page";
+import useTTS from "@/hooks/useTTS";
 
 interface AACPanelProps {
   onCommand: (cmd: string) => void;
   lastAssistantMessage: string;
   grade: string;
-  setGrade: (grade: string) => void;
+  setGrade: (g: string) => void;
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   setBusy: (busy: boolean) => void;
-  inputRef: RefObject<HTMLInputElement> | null;
+  /** 👇 Acepta null porque el ref arranca en null */
+  inputRef: React.RefObject<HTMLInputElement | null>;
   setText: (text: string) => void;
   sendMessage: (text?: string) => void;
 }
+
+const grades = ["1º", "2º", "3º", "4º", "5º", "6º"];
 
 export default function AACPanel({
   onCommand,
@@ -26,36 +31,68 @@ export default function AACPanel({
   setText,
   sendMessage,
 }: AACPanelProps) {
-  return (
-    <div className="mt-6">
-      <div className="mb-2">
-        <label htmlFor="grade" className="text-sm font-semibold">
-          Curso
-        </label>
-        <select
-          id="grade"
-          value={grade}
-          onChange={(e) => setGrade(e.target.value)}
-          className="ml-2 border rounded px-2 py-1 text-sm"
-        >
-          <option value="1º">1º</option>
-          <option value="2º">2º</option>
-          <option value="3º">3º</option>
-          <option value="4º">4º</option>
-          <option value="5º">5º</option>
-          <option value="6º">6º</option>
-        </select>
-      </div>
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
 
-      <SpeechInput
-        onCommand={onCommand}
-        lastAssistantMessage={lastAssistantMessage}
-        inputRef={inputRef}
-        setText={setText}
-        setMessages={setMessages}
-        setBusy={setBusy}
-        sendMessage={sendMessage}
-      />
-    </div>
+  // Lectura automática del último mensaje del asistente
+  useTTS(lastAssistantMessage, voiceEnabled);
+
+  const pictos = [
+    { label: "Sumar", command: "¿Cuánto es 3 + 4?" },
+    { label: "Fracciones", command: "¿Cuánto es 1/2 + 3/4?" },
+    { label: "Verbos", command: "¿Cómo se conjuga el verbo comer en presente?" },
+    { label: "Mapa", command: "¿Dónde está el norte en un mapa?" },
+  ];
+
+  return (
+    <section className="rounded-2xl border bg-white shadow-soft">
+      <div className="p-5 md:p-6 space-y-4">
+        <h2 className="text-lg font-semibold">Panel AAC</h2>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-slate-600">Nivel:</span>
+          {grades.map((g) => (
+            <Button
+              key={g}
+              variant={g === grade ? "default" : "outline"}
+              onClick={() => setGrade(g)}
+              className={g === grade ? "bg-black text-white" : ""}
+            >
+              {g}
+            </Button>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {pictos.map((p) => (
+            <Button
+              key={p.label}
+              onClick={() => onCommand(p.command)}
+              variant="secondary"
+              className="bg-white border hover:bg-gray-50"
+            >
+              {p.label}
+            </Button>
+          ))}
+          <Button onClick={() => onCommand("limpiar")} variant="outline">
+            Limpiar
+          </Button>
+          <Button onClick={() => onCommand("enviar")} className="bg-black text-white">
+            Enviar ahora
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <label htmlFor="tts-toggle" className="text-sm">
+            Lectura en voz alta
+          </label>
+          <input
+            id="tts-toggle"
+            type="checkbox"
+            checked={voiceEnabled}
+            onChange={() => setVoiceEnabled(!voiceEnabled)}
+          />
+        </div>
+      </div>
+    </section>
   );
 }

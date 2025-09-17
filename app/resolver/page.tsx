@@ -1,152 +1,130 @@
-'use client';
+"use client";
 
-import React, { useRef, useState } from 'react';
-import 'katex/dist/katex.min.css';
-import { InlineMath, BlockMath } from 'react-katex';
-import AACPanel from '@/components/AACPanel';
-import { ChatMessage, ChatResponse } from '@/types/chat';
+import { useRef, useState } from "react";
+import AACPanel from "@/components/AACPanel";
+import { useSearchParams } from "next/navigation";
 
-function renderWithKatex(text: string) {
-  const out: React.ReactNode[] = [];
-  let i = 0;
-  const parts = text.split(/(\$\$[^$]+\$\$)/g);
-  for (const chunk of parts) {
-    if (!chunk) continue;
-    if (/^\$\$[^$]+\$\$$/.test(chunk)) {
-      const math = chunk.slice(2, -2).trim();
-      out.push(<BlockMath key={`bm-${i++}`} math={math} />);
-    } else {
-      const inlines = chunk.split(/(\$[^$]+\$)/g);
-      for (const piece of inlines) {
-        if (!piece) continue;
-        if (/^\$[^$]+\$/.test(piece)) {
-          const math = piece.slice(1, -1).trim();
-          out.push(<InlineMath key={`im-${i++}`} math={math} />);
-        } else {
-          out.push(<span key={`t-${i++}`}>{piece}</span>);
-        }
-      }
-    }
-  }
-  return out;
-}
+export type ChatMessage = { role: "user" | "assistant" | "system"; content: string };
 
 export default function Page() {
+  const [text, setText] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
-  const [grade, setGrade] = useState('1º');
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [grade, setGrade] = useState("1º");
 
-  const lastAssistantMessage = messages
-    .filter((m) => m.role === 'assistant')
-    .map((m) => m.text)
-    .pop() ?? '';
+  // 👇 El ref inicia en null
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
-  async function sendMessage(userText?: string) {
-    const msg = (userText ?? text).trim();
-    if (!msg) return;
+  const searchParams = useSearchParams();
+  const subject = searchParams?.get("subject") ?? "general";
 
-    setMessages((prev) => [...prev, { role: 'user', text: msg }]);
-    setText('');
+  const lastAssistantMessage =
+    messages[messages.length - 1]?.role === "assistant"
+      ? messages[messages.length - 1].content
+      : "";
+
+  const sendMessage = async (forcedText?: string) => {
+    const payload = (forcedText ?? text).trim();
+    if (!payload) return;
+
     setBusy(true);
+    setMessages((prev) => [...prev, { role: "user", content: payload }]);
+    setText("");
 
     try {
-      const res = await fetch('/backend/solve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg, grade }),
-      });
-
-      if (!res.ok) {
-        const errTxt = await res.text().catch(() => '');
-        setMessages((prev) => [
-          ...prev,
-          { role: 'assistant', text: `Ups… no pude responder ahora mismo. ${errTxt || 'HTTP ' + res.status}` },
-        ]);
-        return;
-      }
-
-      const data: ChatResponse = await res.json();
-      const stepMsgs: ChatMessage[] = (data.steps ?? []).map((s) => ({
-        role: 'assistant',
-        text: s?.text ?? '',
-        imageUrl: s?.imageUrl ?? null,
-      }));
-
-      if (stepMsgs.length) {
-        setMessages((prev) => [...prev, ...stepMsgs]);
-      } else {
-        setMessages((prev) => [...prev, { role: 'assistant', text: 'No hay respuesta del servidor.' }]);
-      }
-    } catch (e: any) {
-      setMessages((prev) => [...prev, { role: 'assistant', text: `Error de red: ${e?.message ?? e}` }]);
+      // TODO: reemplazar por tu fetch real al backend en Railway
+      const reply = `Recibí tu mensaje sobre "${subject}" (grado ${grade}): ${payload}`;
+      setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "Ups, hubo un problema al contactar con el servidor.",
+        },
+      ]);
     } finally {
       setBusy(false);
       inputRef.current?.focus();
     }
-  }
+  };
+
+  const onCommand = (cmd: string) => {
+    if (cmd === "limpiar") setText("");
+    else if (cmd === "enviar") sendMessage();
+    else if (cmd) {
+      setText(cmd);
+      sendMessage(cmd);
+    }
+  };
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-3xl font-bold mb-4">Tutorín</h1>
+    <main className="container mx-auto space-y-6 py-6">
+      <header className="mb-2">
+        <h1 className="text-3xl md:text-4xl font-bold tracking-tight">Tutorin – Resolutor</h1>
+        <p className="text-slate-600 mt-1">Resuelve dudas con un panel accesible para niños</p>
+      </header>
 
-      <div className="flex flex-col gap-3 mb-4">
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={
-              m.role === 'user'
-                ? 'self-end bg-blue-600 text-white rounded px-3 py-2'
-                : 'self-start bg-gray-100 text-black rounded px-3 py-2'
-            }
-          >
-            <div>{renderWithKatex(m.text)}</div>
-            {m.imageUrl ? (
-              <img src={m.imageUrl} alt="" className="mt-2 max-w-xs rounded" />
-            ) : null}
+      <section className="rounded-2xl border bg-white shadow-soft">
+        <div className="p-5 md:p-6 grid gap-5 md:grid-cols-3">
+          <div className="md:col-span-1">
+            <h2 className="text-lg font-semibold">Tema</h2>
+            <p className="text-slate-600 mt-1 capitalize">{subject}</p>
           </div>
-        ))}
-      </div>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          sendMessage();
-        }}
-        className="mt-4 flex gap-2"
-      >
-        <input
-          ref={inputRef}
-          className="flex-1 border rounded px-3 py-2"
-          placeholder="Escribe tu ejercicio y pulsa Enter. Ej.: ¿cuánto es 2/3 + 5/8?"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          disabled={busy}
-        />
-        <button
-          type="submit"
-          className="px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-50"
-          disabled={busy}
-        >
-          {busy ? 'Pensando…' : 'Enviar'}
-        </button>
-      </form>
+          <div className="md:col-span-2">
+            <h2 className="text-lg font-semibold mb-2">Mensaje</h2>
+            <div className="flex gap-2">
+              <input
+                ref={inputRef}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                className="flex-1 rounded-xl border px-4 py-2 outline-none focus:ring-2 focus:ring-black/10"
+                placeholder="Escribe tu duda…"
+                disabled={busy}
+              />
+              <button
+                onClick={() => sendMessage()}
+                disabled={busy}
+                className="rounded-xl px-4 py-2 border bg-black text-white disabled:opacity-60"
+              >
+                {busy ? "Enviando…" : "Enviar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border bg-white shadow-soft">
+        <div className="p-5 md:p-6">
+          <h2 className="text-lg font-semibold mb-3">Conversación</h2>
+          <ul className="space-y-3">
+            {messages.map((m, i) => (
+              <li key={i} className="rounded-xl border p-3">
+                <div className="text-xs uppercase tracking-wide text-slate-500">{m.role}</div>
+                <div className="mt-1">{m.content}</div>
+              </li>
+            ))}
+            {messages.length === 0 && (
+              <li className="text-slate-600">
+                Aún no hay mensajes. ¡Escribe tu primera pregunta! 😊
+              </li>
+            )}
+          </ul>
+        </div>
+      </section>
 
       <AACPanel
-        onCommand={(cmd) => {
-          setText(cmd || '');
-          if (cmd) sendMessage(cmd);
-        }}
+        onCommand={onCommand}
         lastAssistantMessage={lastAssistantMessage}
         grade={grade}
         setGrade={setGrade}
         setMessages={setMessages}
         setBusy={setBusy}
-        inputRef={inputRef as React.RefObject<HTMLInputElement>}
+        inputRef={inputRef}
         setText={setText}
         sendMessage={sendMessage}
       />
-    </div>
+    </main>
   );
 }
