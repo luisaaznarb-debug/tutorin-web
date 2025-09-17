@@ -3,41 +3,19 @@
 import React, { useRef, useState } from 'react';
 import 'katex/dist/katex.min.css';
 import { InlineMath, BlockMath } from 'react-katex';
+import AACPanel from '@/components/AACPanel';
+import { ChatMessage, ChatResponse } from '@/types/chat';
 
-// ---------- Tipos ----------
-type Role = 'user' | 'assistant';
-
-type ChatMessage = {
-  role: Role;
-  text: string;
-  imageUrl?: string | null;
-};
-
-type Step = {
-  text: string;
-  imageUrl?: string | null;
-};
-
-type ChatResponse = {
-  steps?: Step[];
-  reply?: string | null;
-};
-
-// ---------- Util: KaTeX ----------
 function renderWithKatex(text: string) {
   const out: React.ReactNode[] = [];
   let i = 0;
-
-  // $$ ... $$ -> bloque
   const parts = text.split(/(\$\$[^$]+\$\$)/g);
   for (const chunk of parts) {
     if (!chunk) continue;
-
     if (/^\$\$[^$]+\$\$$/.test(chunk)) {
       const math = chunk.slice(2, -2).trim();
       out.push(<BlockMath key={`bm-${i++}`} math={math} />);
     } else {
-      // $ ... $ -> inline
       const inlines = chunk.split(/(\$[^$]+\$)/g);
       for (const piece of inlines) {
         if (!piece) continue;
@@ -57,51 +35,52 @@ export default function Page() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  const [grade, setGrade] = useState('1º');
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const lastAssistantMessage = messages
+    .filter((m) => m.role === 'assistant')
+    .map((m) => m.text)
+    .pop() ?? '';
 
   async function sendMessage(userText?: string) {
     const msg = (userText ?? text).trim();
     if (!msg) return;
 
-    // pinta el mensaje del usuario
-    setMessages(prev => [...prev, { role: 'user', text: msg }]);
+    setMessages((prev) => [...prev, { role: 'user', text: msg }]);
     setText('');
     setBusy(true);
 
     try {
       const res = await fetch('/backend/solve', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ message: msg }),
-});
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg, grade }),
+      });
 
       if (!res.ok) {
         const errTxt = await res.text().catch(() => '');
-        setMessages(prev => [
+        setMessages((prev) => [
           ...prev,
           { role: 'assistant', text: `Ups… no pude responder ahora mismo. ${errTxt || 'HTTP ' + res.status}` },
         ]);
         return;
-        }
+      }
 
       const data: ChatResponse = await res.json();
-
-      // normaliza tipos aquí
-      const stepMsgs: ChatMessage[] = (data.steps ?? []).map(s => ({
+      const stepMsgs: ChatMessage[] = (data.steps ?? []).map((s) => ({
         role: 'assistant',
-        text: s?.text ?? '',           // <- string garantizado
-        imageUrl: s?.imageUrl ?? null, // <- null permitido
+        text: s?.text ?? '',
+        imageUrl: s?.imageUrl ?? null,
       }));
 
       if (stepMsgs.length) {
-        setMessages(prev => [...prev, ...stepMsgs]);
-      } else if (typeof data.reply === 'string') {
-       setMessages(prev => [...prev, { role: 'assistant', text: data.reply ?? '' }]);
+        setMessages((prev) => [...prev, ...stepMsgs]);
       } else {
-        setMessages(prev => [...prev, { role: 'assistant', text: 'No hay respuesta del servidor.' }]);
+        setMessages((prev) => [...prev, { role: 'assistant', text: 'No hay respuesta del servidor.' }]);
       }
     } catch (e: any) {
-      setMessages(prev => [...prev, { role: 'assistant', text: `Error de red: ${e?.message ?? e}` }]);
+      setMessages((prev) => [...prev, { role: 'assistant', text: `Error de red: ${e?.message ?? e}` }]);
     } finally {
       setBusy(false);
       inputRef.current?.focus();
@@ -112,7 +91,6 @@ export default function Page() {
     <div className="p-6 max-w-3xl mx-auto">
       <h1 className="text-3xl font-bold mb-4">Tutorín</h1>
 
-      {/* Mensajes */}
       <div className="flex flex-col gap-3 mb-4">
         {messages.map((m, i) => (
           <div
@@ -131,9 +109,8 @@ export default function Page() {
         ))}
       </div>
 
-      {/* Formulario */}
       <form
-        onSubmit={e => {
+        onSubmit={(e) => {
           e.preventDefault();
           sendMessage();
         }}
@@ -144,13 +121,32 @@ export default function Page() {
           className="flex-1 border rounded px-3 py-2"
           placeholder="Escribe tu ejercicio y pulsa Enter. Ej.: ¿cuánto es 2/3 + 5/8?"
           value={text}
-          onChange={e => setText(e.target.value)}
+          onChange={(e) => setText(e.target.value)}
           disabled={busy}
         />
-        <button type="submit" className="px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-50" disabled={busy}>
+        <button
+          type="submit"
+          className="px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-50"
+          disabled={busy}
+        >
           {busy ? 'Pensando…' : 'Enviar'}
         </button>
       </form>
+
+      <AACPanel
+        onCommand={(cmd) => {
+          setText(cmd || '');
+          if (cmd) sendMessage(cmd);
+        }}
+        lastAssistantMessage={lastAssistantMessage}
+        grade={grade}
+        setGrade={setGrade}
+        setMessages={setMessages}
+        setBusy={setBusy}
+        inputRef={inputRef}
+        setText={setText}
+        sendMessage={sendMessage}
+      />
     </div>
   );
 }

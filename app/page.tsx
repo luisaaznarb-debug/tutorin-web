@@ -69,6 +69,7 @@ const DEFAULT: Palette = {
 
 export default function Home() {
   const [p, setP] = useState<Palette>(DEFAULT);
+  const [subject, setSubject] = useState('matematicas');
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -96,7 +97,7 @@ export default function Home() {
             <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900, color: '#111827' }}>Tutorín</h1>
           </div>
           <div style={{ marginLeft: 'auto' }}>
-            <Link href="/resolver" style={{ textDecoration: 'none' }}>
+            <Link href={`/resolver?subject=${subject}`} style={{ textDecoration: 'none' }}>
               <button style={{ padding: '10px 14px', borderRadius: 12, background: p.brand, color: p.contrast, border: 'none', fontWeight: 800, boxShadow: `0 6px 16px ${p.shadow}` }}>
                 Abrir el chat
               </button>
@@ -113,8 +114,27 @@ export default function Home() {
             <p style={{ margin: 0, color: '#374151' }}>
               Matemáticas, Lengua, Ciencias e Historia/Geografía. Una pista por turno, valida tu respuesta y avanza.
             </p>
-            <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
-              <Link href="/resolver" style={{ textDecoration: 'none' }}>
+
+            {/* ✅ Selector de materia */}
+            <div style={{ marginTop: 16, marginBottom: 12 }}>
+              <label htmlFor="subject" style={{ fontWeight: 600, display: 'block', marginBottom: 4 }}>Elige una asignatura:</label>
+              <select
+                id="subject"
+                value={subject}
+                onChange={e => setSubject(e.target.value)}
+                style={{ padding: 8, borderRadius: 8, width: '100%', maxWidth: 240 }}
+              >
+                <option value="matematicas">Matemáticas</option>
+                <option value="lengua">Lengua</option>
+                <option value="ciencias">Ciencias</option>
+                <option value="historia">Historia y Geografía</option>
+                <option value="valenciano">Valenciano/Catalán</option>
+                <option value="ingles">Inglés</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Link href={`/resolver?subject=${subject}`} style={{ textDecoration: 'none' }}>
                 <button style={{ padding: '10px 14px', borderRadius: 12, background: p.brand, color: p.contrast, border: 'none', fontWeight: 800 }}>Empezar ahora</button>
               </Link>
               <a href="#como-funciona" style={{ textDecoration: 'none' }}>
