@@ -1,3 +1,4 @@
+'use client';
 import React, { RefObject } from 'react';
 import SpeechInput from './SpeechInput';
 import { ChatMessage } from '@/types/chat';
