@@ -143,7 +143,7 @@ export default function Page() {
         setGrade={setGrade}
         setMessages={setMessages}
         setBusy={setBusy}
-        inputRef={inputRef}
+        inputRef={inputRef as React.RefObject<HTMLInputElement>}
         setText={setText}
         sendMessage={sendMessage}
       />
