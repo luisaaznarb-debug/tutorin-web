@@ -1,22 +1,25 @@
 [build]
   command = "npm ci && npm run build"
-  publish = "out"
+  publish = ".next"
 
-# 👇 Redirecciones para que el frontend hable con el backend
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# 🔀 Redirecciones al backend (FastAPI en Railway/Render/etc.)
 [[redirects]]
   from = "/backend/chat"
-  to = "https://web-production-f480.up.railway.app/chat"
+  to = "https://TU_BACKEND_URL/chat"
   status = 200
   force = true
 
 [[redirects]]
   from = "/backend/tts"
-  to = "hhttps://web-production-f480.up.railway.app/tts"
+  to = "https://TU_BACKEND_URL/tts"
   status = 200
   force = true
 
 [[redirects]]
   from = "/backend/health"
-  to = "https://web-production-f480.up.railway.app/ping"
+  to = "https://TU_BACKEND_URL/ping"
   status = 200
   force = true
