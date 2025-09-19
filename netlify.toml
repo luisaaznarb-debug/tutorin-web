@@ -1,17 +1,22 @@
 [build]
   command = "npm ci && npm run build"
-  publish = ".next"
+  publish = "out"
 
-# Proxy para resolver
+# 👇 Redirecciones para que el frontend hable con el backend
 [[redirects]]
-  from = "/backend/solve"
-  to   = "https://web-production-f480.up.railway.app/chat"
+  from = "/backend/chat"
+  to = "https://web-production-f480.up.railway.app/chat"
   status = 200
   force = true
 
-# Comprobación de salud
+[[redirects]]
+  from = "/backend/tts"
+  to = "hhttps://web-production-f480.up.railway.app/tts"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/backend/health"
-  to   = "https://web-production-f480.up.railway.app/ping"
+  to = "https://web-production-f480.up.railway.app/ping"
   status = 200
   force = true

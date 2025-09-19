@@ -1,5 +1,5 @@
 export type ChatMessage = {
-  role: "Niño" | "Tutorin";
+  role: string;   // 👈 ahora acepta cualquier string, no solo "Niño" | "Tutorin"
   content: string;
 };
 

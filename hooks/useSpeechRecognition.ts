@@ -1,63 +1,43 @@
-﻿import { useEffect, useRef, useState } from "react";
+﻿"use client";
 
-type UseSpeechRecognitionOptions = {
+import { useEffect, useRef } from "react";
+
+interface UseSpeechRecognitionProps {
   onResult: (text: string) => void;
-};
+}
 
-export default function useSpeechRecognition({
-  onResult,
-}: UseSpeechRecognitionOptions) {
+export default function useSpeechRecognition({ onResult }: UseSpeechRecognitionProps) {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
 
   useEffect(() => {
-    // Compatibilidad con diferentes navegadores
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      console.warn("⚠️ SpeechRecognition no está soportado en este navegador.");
+      console.warn("SpeechRecognition no soportado en este navegador");
       return;
     }
 
     const recognition = new SpeechRecognition();
-    recognition.lang = "es-ES"; // Reconocimiento en español
-    recognition.interimResults = true;
+    recognition.lang = "es-ES";
+    recognition.interimResults = false;
     recognition.continuous = true;
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const results = Array.from(event.results);
-      const final = results.find((r) => r.isFinal);
-      if (final) {
-        onResult(final[0].transcript.trim());
-      }
+      const text = event.results[event.results.length - 1][0].transcript.trim();
+      onResult(text);
     };
 
-    recognition.onstart = () => setIsRecording(true);
-    recognition.onend = () => setIsRecording(false);
+ recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+  console.error("Error en reconocimiento de voz:", event.error);
+};
 
+
+    recognition.start();
     recognitionRef.current = recognition;
 
     return () => {
       recognition.stop();
     };
   }, [onResult]);
-
-  const start = () => {
-    try {
-      recognitionRef.current?.start();
-    } catch (err) {
-      console.error("Error al iniciar reconocimiento de voz:", err);
-    }
-  };
-
-  const stop = () => {
-    try {
-      recognitionRef.current?.stop();
-    } catch (err) {
-      console.error("Error al detener reconocimiento de voz:", err);
-    }
-  };
-
-  return { start, stop, isRecording };
 }
