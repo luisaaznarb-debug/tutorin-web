@@ -1,31 +1,32 @@
 "use client";
 
-/**
- * Hook de Text-to-Speech.
- * Uso:
- *   useTTS(texto, enabled)
- * - Si `enabled` es true, leerá en voz alta cada vez que cambie `texto`.
- * - Cancela la lectura anterior antes de hablar.
- */
-export default function useTTS(text?: string, enabled: boolean = true) {
-  // en SSR no hay window
-  if (typeof window === "undefined") return;
+import { useEffect } from "react";
 
-  // Cancelamos cualquier lectura previa antes de programar una nueva
-  try {
-    window.speechSynthesis.cancel();
-  } catch {
-    /* noop */
-  }
+export default function useTTS(text: string, enabled: boolean = true) {
+  useEffect(() => {
+    if (!enabled || !text) return;
 
-  // Si no está habilitado o no hay texto, no hacemos nada
-  if (!enabled || !text) return;
+    const speak = async () => {
+      try {
+        const response = await fetch("http://127.0.0.1:8000/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
 
-  // Programamos la lectura del texto
-  const utterance = new SpeechSynthesisUtterance(text);
-  try {
-    window.speechSynthesis.speak(utterance);
-  } catch {
-    /* noop */
-  }
+        const data = await response.json();
+
+        if (data.audio) {
+          const audio = new Audio("data:audio/mp3;base64," + data.audio);
+          audio.play();
+        } else {
+          console.error("Error en TTS:", data.error);
+        }
+      } catch (err) {
+        console.error("Error en TTS:", err);
+      }
+    };
+
+    speak();
+  }, [text, enabled]);
 }

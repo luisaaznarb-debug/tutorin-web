@@ -1,155 +1,79 @@
 "use client";
 
-import { useRef, useState } from "react";
-import AACPanel from "@/components/AACPanel";
-import { useSearchParams } from "next/navigation";
-import type { ChatMessage, CoachResponse } from "@/types/chat";
-import CoachTurn from "@/components/CoachTurn";
-import { chatCoach } from "@/lib/api";
+import { useState, useEffect } from "react";
+import useSpeechRecognition from "@/hooks/useSpeechRecognition";
+import useConversationTTS from "@/hooks/useConversationTTS";
 
-type Turn =
-  | { role: "user"; text: string }
-  | { role: "assistant"; coach: CoachResponse };
+type CoachBlock = {
+  type: "Pregunta" | "Pista" | "Respuesta" | "Pista extra";
+  text: string;
+};
 
 export default function Page() {
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [grade, setGrade] = useState("1º");
-  const [thread, setThread] = useState<Turn[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([]); // historial “clásico” para el backend
+  const [steps, setSteps] = useState<CoachBlock[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const searchParams = useSearchParams();
-  const subject = searchParams?.get("subject") ?? "general";
+  // 🎤 Escuchar al niño siempre
+  useSpeechRecognition({
+    onResult: async (childSpeech: string) => {
+      console.log("Niño dijo:", childSpeech);
 
-  const lastAssistantMessage =
-    thread.length && thread[thread.length - 1].role === "assistant"
-      ? (thread[thread.length - 1] as any).coach.blocks
-          .map((b: any) => b.text)
-          .join(" ")
-      : "";
+      setLoading(true);
 
-  const sendMessage = async (forced?: string) => {
-    const payload = (forced ?? text).trim();
-    if (!payload) return;
+      try {
+        // 📡 Enviar al backend
+        const res = await fetch("http://127.0.0.1:8000/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: childSpeech,
+            subject: "matematicas",
+            grade: "6",
+          }),
+        });
 
-    setBusy(true);
-    setText("");
-    setThread((t) => [...t, { role: "user", text: payload }]);
-    const nextMessages: ChatMessage[] = [
-      ...messages,
-      { role: "user", content: payload },
-    ];
-    setMessages(nextMessages);
+        const data = await res.json();
+        console.log("Respuesta del backend:", data);
 
-    try {
-      const coach = await chatCoach({
-        messages: nextMessages,
-        subject,
-        grade,
-        maxHints: 2,
-      });
-      setThread((t) => [...t, { role: "assistant", coach }]);
-      // guardamos un mensaje “plano” solo por historial
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: coach.blocks.map((b) => b.text).join("\n") },
-      ]);
-    } catch (e: any) {
-      setThread((t) => [
-        ...t,
-        {
-          role: "assistant",
-          coach: { blocks: [{ type: "answer", text: "Ups, hubo un problema con el servidor." }] },
-        },
-      ]);
-    } finally {
-      setBusy(false);
-      inputRef.current?.focus();
-    }
-  };
+        // 👇 Guardar bloques en el estado
+        setSteps((prev) => [...prev, ...data.blocks]);
+      } catch (err) {
+        console.error("Error al llamar backend:", err);
+      } finally {
+        setLoading(false);
+      }
+    },
+  });
 
-  const onCommand = (cmd: string) => {
-    if (cmd === "limpiar") setText("");
-    else if (cmd === "enviar") sendMessage();
-    else if (cmd) {
-      setText(cmd);
-      sendMessage(cmd);
-    }
-  };
+  // 🔊 Tutorín habla los bloques que va recibiendo
+  useConversationTTS(steps);
 
   return (
-    <main className="container mx-auto space-y-6 py-6">
-      <header className="mb-2">
-        <h1 className="text-3xl md:text-4xl font-bold tracking-tight">Tutorin – Resolutor</h1>
-        <p className="text-slate-600 mt-1">Resuelve dudas con un panel accesible para niños</p>
-      </header>
+    <div className="p-6 space-y-4">
+      <h1 className="text-2xl font-bold">Tutorín 🤖 Resolutor</h1>
+      <p className="text-gray-600">Habla y Tutorín te guiará paso a paso</p>
 
-      <section className="rounded-2xl border bg-white shadow-soft">
-        <div className="p-5 md:p-6 grid gap-5 md:grid-cols-3">
-          <div className="md:col-span-1">
-            <h2 className="text-lg font-semibold">Tema</h2>
-            <p className="text-slate-600 mt-1 capitalize">{subject}</p>
+      {loading && <p className="text-gray-500">Pensando...</p>}
+
+      <div className="space-y-3">
+        {steps.map((b, i) => (
+          <div
+            key={i}
+            className={`p-3 rounded-lg max-w-lg ${
+              b.type === "Pregunta"
+                ? "bg-blue-100 text-blue-800 self-start"
+                : b.type === "Pista"
+                ? "bg-yellow-100 text-yellow-800 self-start"
+                : b.type === "Respuesta"
+                ? "bg-green-100 text-green-800 self-start"
+                : "bg-purple-100 text-purple-800 self-start"
+            }`}
+          >
+            <strong>{b.type}: </strong>
+            {b.text}
           </div>
-
-          <div className="md:col-span-2">
-            <h2 className="text-lg font-semibold mb-2">Mensaje</h2>
-            <div className="flex gap-2">
-              <input
-                ref={inputRef}
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                className="flex-1 rounded-xl border px-4 py-2 outline-none focus:ring-2 focus:ring-black/10"
-                placeholder="Escribe tu duda…"
-                disabled={busy}
-              />
-              <button
-                onClick={() => sendMessage()}
-                disabled={busy}
-                className="rounded-xl px-4 py-2 border bg-black text-white disabled:opacity-60"
-              >
-                {busy ? "Enviando…" : "Enviar"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-2xl border bg-white shadow-soft">
-        <div className="p-5 md:p-6 space-y-4">
-          <h2 className="text-lg font-semibold">Conversación</h2>
-          {thread.length === 0 && (
-            <p className="text-slate-600">Aún no hay mensajes. ¡Escribe tu primera pregunta! 😊</p>
-          )}
-          <div className="space-y-6">
-            {thread.map((t, i) =>
-              t.role === "user" ? (
-                <div key={i} className="rounded-xl border p-3 bg-slate-50">
-                  <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">User</div>
-                  <div>{t.text}</div>
-                </div>
-              ) : (
-                <div key={i} className="rounded-xl border p-3">
-                  <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Tutorin</div>
-                  <CoachTurn blocks={t.coach.blocks} />
-                </div>
-              )
-            )}
-          </div>
-        </div>
-      </section>
-
-      <AACPanel
-        onCommand={onCommand}
-        lastAssistantMessage={lastAssistantMessage}
-        grade={grade}
-        setGrade={setGrade}
-        setMessages={setMessages}
-        setBusy={setBusy}
-        inputRef={inputRef}
-        setText={setText}
-        sendMessage={sendMessage}
-      />
-    </main>
+        ))}
+      </div>
+    </div>
   );
 }
