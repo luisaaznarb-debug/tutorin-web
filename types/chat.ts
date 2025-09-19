@@ -1,10 +1,12 @@
+// types/chat.ts
+
 export type ChatMessage = {
-  role: "user" | "assistant" | "system";
-  content: string;
+  role: "Niño" | "Tutorin";  // Cambiado a roles que usas en tu UI
+  text: string;              // Cambiado "content" → "text" para coincidir con tu frontend
 };
 
 export type CoachBlock = {
-  type: "question" | "hint" | "answer";
+  type: "Pregunta" | "Pista" | "Respuesta" | "Pista extra"; // En español, como lo usas en la UI
   text: string;
 };
 

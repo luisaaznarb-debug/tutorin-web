@@ -1,76 +1,110 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { ChatMessage, CoachBlock } from "@/types/chat";
 import useSpeechRecognition from "@/hooks/useSpeechRecognition";
 import useConversationTTS from "@/hooks/useConversationTTS";
 
-type CoachBlock = {
-  type: "Pregunta" | "Pista" | "Respuesta" | "Pista extra";
-  text: string;
-};
-
 export default function Page() {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [steps, setSteps] = useState<CoachBlock[]>([]);
+  const [currentStep, setCurrentStep] = useState<CoachBlock | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // 🎤 Escuchar al niño siempre
-  useSpeechRecognition({
-    onResult: async (childSpeech: string) => {
-      console.log("Niño dijo:", childSpeech);
+  // 🔊 Último mensaje de Tutorin para leerlo en voz alta
+  const lastTutorinMessage =
+    messages.length && messages[messages.length - 1].role === "Tutorin"
+      ? messages[messages.length - 1].text
+      : "";
 
-      setLoading(true);
+  useConversationTTS([
+    { type: "Pista", text: lastTutorinMessage }, // siempre entra como bloque válido
+  ]);
+
+  // 🎤 Procesar entrada del niño con reconocimiento de voz
+  useSpeechRecognition({
+    onResult: async (text: string) => {
+      setMessages((prev) => [...prev, { role: "Niño", text }]);
 
       try {
-        // 📡 Enviar al backend
-        const res = await fetch("http://127.0.0.1:8000/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: childSpeech,
-            subject: "matematicas",
-            grade: "6",
-          }),
-        });
+        // 1️⃣ Si no hay problema en curso → generar uno nuevo
+        if (currentStep === null) {
+          setLoading(true);
+          const res = await fetch("http://127.0.0.1:8000/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              messages,
+              subject: "matematicas",
+              grade: "6",
+            }),
+          });
 
-        const data = await res.json();
-        console.log("Respuesta del backend:", data);
+          const data = await res.json();
+          setSteps(data.blocks);
+          setCurrentStep(data.blocks[0]);
 
-        // 👇 Guardar bloques en el estado
-        setSteps((prev) => [...prev, ...data.blocks]);
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "Tutorin",
+              text: `Problema: ${data.blocks[0].text}. Pista: ${data.blocks[1]?.text || ""}`,
+            },
+          ]);
+        } else {
+          // 2️⃣ Si ya hay un problema en curso → comprobar respuesta
+          if (text.toLowerCase().includes(currentStep.text.toLowerCase())) {
+            // ✅ Respuesta correcta → pasar al siguiente paso
+            const nextIndex = steps.indexOf(currentStep) + 1;
+            if (nextIndex < steps.length) {
+              setCurrentStep(steps[nextIndex]);
+              setMessages((prev) => [
+                ...prev,
+                { role: "Tutorin", text: `¡Bien! ${steps[nextIndex].text}` },
+              ]);
+            } else {
+              // 🏁 Ejercicio terminado
+              setMessages((prev) => [
+                ...prev,
+                { role: "Tutorin", text: "¡Genial! Hemos terminado este ejercicio. 🎉" },
+              ]);
+              setCurrentStep(null);
+              setSteps([]);
+            }
+          } else {
+            // ❌ Respuesta incorrecta → dar otra pista
+            setMessages((prev) => [
+              ...prev,
+              { role: "Tutorin", text: `No exactamente. Pista: ${currentStep.text}` },
+            ]);
+          }
+        }
       } catch (err) {
-        console.error("Error al llamar backend:", err);
+        console.error(err);
       } finally {
         setLoading(false);
       }
     },
   });
 
-  // 🔊 Tutorín habla los bloques que va recibiendo
-  useConversationTTS(steps);
-
   return (
     <div className="p-6 space-y-4">
-      <h1 className="text-2xl font-bold">Tutorín 🤖 Resolutor</h1>
-      <p className="text-gray-600">Habla y Tutorín te guiará paso a paso</p>
+      <h1 className="text-2xl font-bold">Tutorin 🧩 Resolutor</h1>
+      <p className="text-gray-600">Habla y Tutorin te guiará paso a paso</p>
 
       {loading && <p className="text-gray-500">Pensando...</p>}
 
-      <div className="space-y-3">
-        {steps.map((b, i) => (
+      <div className="space-y-2">
+        {messages.map((m, i) => (
           <div
             key={i}
-            className={`p-3 rounded-lg max-w-lg ${
-              b.type === "Pregunta"
-                ? "bg-blue-100 text-blue-800 self-start"
-                : b.type === "Pista"
-                ? "bg-yellow-100 text-yellow-800 self-start"
-                : b.type === "Respuesta"
-                ? "bg-green-100 text-green-800 self-start"
-                : "bg-purple-100 text-purple-800 self-start"
+            className={`p-2 rounded-lg max-w-xs ${
+              m.role === "Niño"
+                ? "bg-blue-200 text-left ml-auto"
+                : "bg-green-200 text-left"
             }`}
           >
-            <strong>{b.type}: </strong>
-            {b.text}
+            <strong>{m.role}:</strong> {m.text}
           </div>
         ))}
       </div>

@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { ChatMessage } from "@/app/resolver/page";
+import { ChatMessage } from "@/types/chat";
 import useTTS from "@/hooks/useTTS";
 
 interface AACPanelProps {
@@ -33,7 +33,7 @@ export default function AACPanel({
 }: AACPanelProps) {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
 
-  // Lectura automática del último mensaje del asistente
+  // 🔊 Lectura automática del último mensaje del asistente
   useTTS(lastAssistantMessage, voiceEnabled);
 
   const pictos = [
@@ -43,11 +43,18 @@ export default function AACPanel({
     { label: "Mapa", command: "¿Dónde está el norte en un mapa?" },
   ];
 
+  // 🔥 Nuevo: cuando se pulsa un pictograma -> se lanza el mensaje directamente
+  const handlePictoClick = (cmd: string) => {
+    setText(cmd);      // llena el input oculto
+    sendMessage(cmd);  // lanza el mensaje automáticamente
+  };
+
   return (
     <section className="rounded-2xl border bg-white shadow-soft">
       <div className="p-5 md:p-6 space-y-4">
         <h2 className="text-lg font-semibold">Panel AAC</h2>
 
+        {/* Nivel escolar */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-slate-600">Nivel:</span>
           {grades.map((g) => (
@@ -62,11 +69,12 @@ export default function AACPanel({
           ))}
         </div>
 
+        {/* Pictogramas rápidos */}
         <div className="flex flex-wrap gap-2">
           {pictos.map((p) => (
             <Button
               key={p.label}
-              onClick={() => onCommand(p.command)}
+              onClick={() => handlePictoClick(p.command)}
               variant="secondary"
               className="bg-white border hover:bg-gray-50"
             >
@@ -76,11 +84,9 @@ export default function AACPanel({
           <Button onClick={() => onCommand("limpiar")} variant="outline">
             Limpiar
           </Button>
-          <Button onClick={() => onCommand("enviar")} className="bg-black text-white">
-            Enviar ahora
-          </Button>
         </div>
 
+        {/* Lectura en voz alta */}
         <div className="flex items-center gap-2">
           <label htmlFor="tts-toggle" className="text-sm">
             Lectura en voz alta
