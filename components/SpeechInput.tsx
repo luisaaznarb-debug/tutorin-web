@@ -1,61 +1,42 @@
-'use client';
+﻿"use client";
 
-import { useEffect, RefObject } from 'react';
-import useSpeechRecognition from '@/hooks/useSpeechRecognition';
-import { ChatMessage } from '@/types/chat';
+import { useState } from "react";
+import useSpeechRecognition from "@/hooks/useSpeechRecognition";
 
 interface SpeechInputProps {
-  onCommand: (cmd: string) => void;
-  lastAssistantMessage: string;
-  inputRef: RefObject<HTMLInputElement> | null;
-  setText: (text: string) => void;
-  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  setBusy: (busy: boolean) => void;
-  sendMessage: (text?: string) => void;
+  sendMessage: (text: string) => void;
 }
 
-export default function SpeechInput({
-  onCommand,
-  lastAssistantMessage,
-  inputRef,
-  setText,
-  setMessages,
-  setBusy,
-  sendMessage,
-}: SpeechInputProps) {
+export default function SpeechInput({ sendMessage }: SpeechInputProps) {
+  const [transcript, setTranscript] = useState("");
+
+  // Usamos el hook personalizado
   const { start, stop, isRecording } = useSpeechRecognition({
     onResult: (finalText: string) => {
       const trimmed = finalText.trim().toLowerCase();
       if (!trimmed) return;
 
-      const commandPrefixes = ['escribe', 'resolver', 'pregunta', 'calcula'];
-      const found = commandPrefixes.find((prefix) =>
-        trimmed.startsWith(prefix)
-      );
-
-      if (found) {
-        const command = trimmed.slice(found.length).trim();
-        if (command) {
-          onCommand(command);
-        }
-      }
+      setTranscript(trimmed);
+      sendMessage(trimmed);
     },
   });
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'F9') {
-        if (isRecording) {
-          stop();
-        } else {
-          start();
-        }
-      }
-    };
+  return (
+    <div className="flex flex-col items-center gap-4">
+      <button
+        onClick={isRecording ? stop : start}
+        className={`px-4 py-2 rounded-lg font-semibold shadow-md transition ${
+          isRecording ? "bg-red-500 text-white" : "bg-blue-500 text-white"
+        }`}
+      >
+        {isRecording ? "Detener 🎙️" : "Hablar ahora 🎤"}
+      </button>
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isRecording, start, stop]);
-
-  return null;
+      {transcript && (
+        <p className="text-gray-700 italic">
+          Último mensaje: <span className="font-bold">{transcript}</span>
+        </p>
+      )}
+    </div>
+  );
 }
