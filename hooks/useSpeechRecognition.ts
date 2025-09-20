@@ -1,43 +1,57 @@
 ﻿"use client";
 
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 
 interface UseSpeechRecognitionProps {
   onResult: (text: string) => void;
+  lang?: string; // idioma
 }
 
-export default function useSpeechRecognition({ onResult }: UseSpeechRecognitionProps) {
+export default function useSpeechRecognition({
+  onResult,
+  lang = "es-ES",
+}: UseSpeechRecognitionProps) {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
-  useEffect(() => {
+  const initRecognition = () => {
     const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      console.warn("SpeechRecognition no soportado en este navegador");
-      return;
+      alert("❌ Tu navegador no soporta reconocimiento de voz.");
+      return null;
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.lang = "es-ES";
+    const recognition: SpeechRecognition = new SpeechRecognition();
+    recognition.lang = lang;
     recognition.interimResults = false;
     recognition.continuous = true;
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const text = event.results[event.results.length - 1][0].transcript.trim();
-      onResult(text);
+      const lastResult =
+        event.results[event.results.length - 1][0].transcript.trim();
+      console.log("📝 Texto reconocido:", lastResult);
+      onResult(lastResult);
     };
 
- recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-  console.error("Error en reconocimiento de voz:", event.error);
-};
-
-
-    recognition.start();
-    recognitionRef.current = recognition;
-
-    return () => {
-      recognition.stop();
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      console.error("⚠️ Error:", event.error);
     };
-  }, [onResult]);
+
+    return recognition;
+  };
+
+  const startListening = () => {
+    if (!recognitionRef.current) recognitionRef.current = initRecognition();
+    recognitionRef.current?.start();
+    console.log("🎤 Micrófono activado");
+  };
+
+  const stopListening = () => {
+    recognitionRef.current?.stop();
+    console.log("🛑 Micrófono desactivado");
+  };
+
+  return { startListening, stopListening };
 }

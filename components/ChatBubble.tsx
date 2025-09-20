@@ -1,28 +1,32 @@
-"use client";
-
 import React from "react";
 
 interface ChatBubbleProps {
-  role: "Niño" | "Tutorin";
+  role: "user" | "assistant";
   content: string;
 }
 
 export default function ChatBubble({ role, content }: ChatBubbleProps) {
-  const isChild = role === "Niño";
-
   return (
     <div
-      className={`flex ${isChild ? "justify-start" : "justify-end"} my-2`}
+      className={`flex items-start gap-2 my-2 ${
+        role === "user" ? "justify-end" : "justify-start"
+      }`}
     >
+      {role === "assistant" && (
+        <img
+          src="/tutorin.png" // 📌 pon aquí la imagen en /public/tutorin.png
+          alt="Tutorín"
+          className="w-10 h-10 rounded-full border shadow"
+        />
+      )}
       <div
-        className={`px-4 py-2 rounded-2xl max-w-[75%] shadow
-          ${isChild ? "bg-blue-200 text-blue-900" : "bg-green-200 text-green-900"}
-        `}
+        className={`p-3 max-w-md rounded-xl ${
+          role === "user"
+            ? "bg-blue-500 text-white"
+            : "bg-gray-200 text-gray-900"
+        }`}
       >
-        <p className="text-sm">
-          <strong>{role}: </strong>
-          {content}
-        </p>
+        {content}
       </div>
     </div>
   );

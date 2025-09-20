@@ -1,106 +1,96 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import ChatBubble from "@/components/ChatBubble";
 import useSpeechRecognition from "@/hooks/useSpeechRecognition";
 
+type ChatMessage = { role: "user" | "assistant"; content: string };
+
 export default function Page() {
-  const [messages, setMessages] = useState<{ role: string; content: string }[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
-
-  const [subject, setSubject] = useState("");
-  const [grade, setGrade] = useState("");
-  const [started, setStarted] = useState(false);
-
-  const [input, setInput] = useState("");
-
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-  // 🎙️ Escucha lo que dice el niño
-  useSpeechRecognition({
-    onResult: async (text: string) => {
-      if (!started || !text) return;
-      await sendMessage(text);
-    },
+  const { startListening, stopListening } = useSpeechRecognition({
+    onResult: (text) => handleUserMessage(text),
   });
 
-  // 📩 Función para enviar mensaje
-  const sendMessage = async (text: string) => {
-    setMessages((prev) => [...prev, { role: "Niño", content: text }]);
-    setLoading(true);
+  // 📌 Detectar materia desde la URL
+  const searchParams = new URLSearchParams(
+    typeof window !== "undefined" ? window.location.search : ""
+  );
+  const subject = searchParams.get("subject") || "matemáticas";
 
-    try {
-      const res = await fetch(`${API_URL}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [...messages, { role: "user", content: text }],
-          subject,
-          grade,
-        }),
+  // 📌 Saludo inicial personalizado
+  useEffect(() => {
+    const saludo = `¡Hola! Soy Tutorín, tu profe virtual de ${subject}. ¿Quieres que empecemos con un reto de ${subject}?`;
+    setMessages([{ role: "assistant", content: saludo }]);
+
+    // 🔹 También generamos el audio con el backend
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "assistant", content: saludo }],
+        subject,
+      }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.audio) {
+          const audio = new Audio("data:audio/mp3;base64," + data.audio);
+          audio.play();
+        }
       });
+  }, [subject]);
 
-      if (!res.ok) throw new Error("Error en la API");
+  const handleUserMessage = async (text: string) => {
+    if (!text) return;
+    setMessages((prev) => [...prev, { role: "user", content: text }]);
 
-      const data = await res.json();
-      setMessages((prev) => [...prev, { role: "Tutorín", content: data.reply }]);
+    setLoading(true);
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [...messages, { role: "user", content: text }],
+        subject,
+      }),
+    });
 
-      if (data.audio) {
-        const audio = new Audio(`data:audio/mp3;base64,${data.audio}`);
-        audio.play();
-      }
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
+    const data = await res.json();
+    setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
+    setLoading(false);
+
+    if (data.audio) {
+      const audio = new Audio("data:audio/mp3;base64," + data.audio);
+      audio.play();
     }
   };
 
-  // ✍️ Enviar mensaje desde el input
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
-    sendMessage(input.trim());
-    setInput("");
-  };
-
   return (
-    <main className="flex flex-col h-screen max-w-lg mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4 text-center">Tutorín 👩‍🏫</h1>
+    <div className="max-w-2xl mx-auto p-6">
+      <h1 className="text-2xl font-bold text-center mb-4">Tutorín 🧑‍🏫</h1>
 
-      {/* Chat box */}
-      <div className="flex-1 overflow-y-auto border rounded-lg p-4 bg-gray-50">
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`my-2 p-2 rounded-xl max-w-[80%] ${
-              msg.role === "Niño"
-                ? "bg-blue-500 text-white self-end ml-auto"
-                : "bg-gray-200 text-black self-start mr-auto"
-            }`}
-          >
-            <p className="text-sm font-semibold">{msg.role}</p>
-            <p>{msg.content}</p>
-          </div>
+      <div className="border rounded-xl p-4 h-[70vh] overflow-y-auto bg-white shadow">
+        {messages.map((m, i) => (
+          <ChatBubble key={i} role={m.role} content={m.content} />
         ))}
-        {loading && <p className="text-gray-500">⏳ Tutorín está pensando...</p>}
+        {loading && <p className="text-gray-500">Tutorín está pensando...</p>}
       </div>
 
-      {/* Input */}
-      <form onSubmit={handleSubmit} className="mt-4 flex gap-2">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          className="flex-1 border rounded-lg p-2"
-          placeholder="Escribe algo..."
-        />
+      <div className="flex gap-2 mt-4 justify-center">
         <button
-          type="submit"
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+          onClick={startListening}
+          className="bg-green-500 text-white px-4 py-2 rounded-lg shadow"
         >
-          Enviar
+          🎤 Activar micrófono
         </button>
-      </form>
-    </main>
+        <button
+          onClick={stopListening}
+          className="bg-red-500 text-white px-4 py-2 rounded-lg shadow"
+        >
+          🛑 Detener micrófono
+        </button>
+      </div>
+    </div>
   );
 }
