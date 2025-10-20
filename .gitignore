@@ -1,0 +1,26 @@
+# Archivos y carpetas que no deben subirse a GitHub
+
+# Node
+node_modules/
+.npm/
+.yarn/
+.pnp.*
+
+# Compilaciones y build
+.next/
+dist/
+build/
+
+# Archivos de entorno
+.env
+.env.*
+*.local
+
+# Logs
+*.log
+
+# Sistema y cachés
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
