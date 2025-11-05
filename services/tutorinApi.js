@@ -3,6 +3,7 @@
  * Cliente de API para Tutorín
  * ✅ Manejo robusto de errores de red
  * ✅ Mensajes de error amigables para el usuario
+ * ✅ NUEVO: Función para subir imágenes
  */
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000").replace(/\/+$/, "");
@@ -89,6 +90,46 @@ export async function analyzePrompt({ prompt, step = 0, answer = "", errors = 0,
       throw new Error("❌ No se pudo conectar con Tutorín. Revisa tu conexión a internet.");
     }
     
+    throw err;
+  }
+}
+
+// ✅ NUEVO: Función para subir imágenes
+/**
+ * Sube una imagen para que Tutorín la analice con IA
+ * @param {File} imageFile - Archivo de imagen
+ * @param {string} cycle - Ciclo educativo (c1, c2, c3)
+ * @returns {Promise<Object>} Respuesta del servidor con el análisis
+ * @throws {Error} Error descriptivo si falla la petición
+ */
+export async function uploadImage(imageFile, cycle = "c2") {
+  try {
+    const formData = new FormData();
+    formData.append("file", imageFile);
+    formData.append("cycle", cycle);
+
+    const res = await fetch(`${API_BASE}/analyze/image`, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!res.ok) {
+      let errorMessage = `Error HTTP ${res.status}`;
+      
+      try {
+        const errorData = await res.json();
+        errorMessage = errorData.detail || errorData.message || errorMessage;
+      } catch {}
+      
+      throw new Error(errorMessage);
+    }
+
+    return await res.json();
+    
+  } catch (err) {
+    if (err.name === "TypeError" && err.message.includes("fetch")) {
+      throw new Error("❌ No se pudo conectar con Tutorín para analizar la imagen.");
+    }
     throw err;
   }
 }

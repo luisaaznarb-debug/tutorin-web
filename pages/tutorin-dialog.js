@@ -1,10 +1,13 @@
+// pages/tutorin-dialog.js
+// ✅ VERSIÓN CORREGIDA: Sin mensajes molestos + detección mejorada
+
 import React, { useEffect, useRef, useState } from "react";
 import ChatBubble from "../components/ChatBubble";
-import { callSolve, playBase64Audio, analyzePrompt } from "../services/tutorinApi";
+import { callSolve, playBase64Audio, analyzePrompt, uploadImage } from "../services/tutorinApi";
 
 export default function TutorinDialogPage() {
   const [messages, setMessages] = useState([
-    { role: "assistant", text: "👋 ¡Hola! Soy Tutorín. Dime un ejercicio y te ayudo paso a paso." },
+    { role: "assistant", text: "👋 ¡Hola! Soy Tutorín. Dime un ejercicio, súbeme una foto o pega una captura (Ctrl+V), y te ayudo paso a paso." },
   ]);
 
   // Estado del ejercicio
@@ -18,16 +21,69 @@ export default function TutorinDialogPage() {
   const [cycle, setCycle] = useState("c2");
   const [listening, setListening] = useState(false);
 
+  // Estados para imágenes
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+
   const recognitionRef = useRef(null);
   const chatRef = useRef(null);
-  const isProcessingRef = useRef(false); // ✅ Evita dobles llamadas
+  const isProcessingRef = useRef(false);
+  const fileInputRef = useRef(null);
+  const inputRef = useRef(null);
 
   // Scroll al final
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
 
-  // ====== Voz del navegador ======
+  // Auto-focus en el input
+  useEffect(() => {
+    if (!loading && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [loading, messages]);
+
+  // Detectar pegado de imágenes (Ctrl+V)
+  useEffect(() => {
+    const handlePaste = (e) => {
+      if (exerciseId || loading) return;
+
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith('image/')) {
+          e.preventDefault();
+          
+          const blob = items[i].getAsFile();
+          if (blob) {
+            const file = new File([blob], `captura-${Date.now()}.png`, { type: blob.type });
+            handleImageFromClipboard(file);
+          }
+          break;
+        }
+      }
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => {
+      document.removeEventListener('paste', handlePaste);
+    };
+  }, [exerciseId, loading]);
+
+  // ✅ CORREGIDO: Manejar imagen desde portapapeles SIN mensaje molesto
+  const handleImageFromClipboard = (file) => {
+    setSelectedImage(file);
+    
+    // Crear preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Voz del navegador
   useEffect(() => {
     if (typeof window === "undefined") return;
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -56,11 +112,90 @@ export default function TutorinDialogPage() {
   }, [lang]);
 
   const startListening = () => !exerciseId && recognitionRef.current?.start();
-  const stopListening  = () => recognitionRef.current?.stop();
+  const stopListening = () => recognitionRef.current?.stop();
 
-  // ====== Envío de mensajes ======
+  // Manejar selección de imagen desde archivo
+  const handleImageSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Por favor, selecciona solo archivos de imagen (jpg, png, etc.)');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('La imagen es muy grande. Por favor, sube una imagen menor a 5MB.');
+      return;
+    }
+
+    setSelectedImage(file);
+    
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Enviar imagen al backend
+  const handleSendImage = async () => {
+    if (!selectedImage || isProcessingRef.current) return;
+
+    isProcessingRef.current = true;
+    setLoading(true);
+
+    try {
+      setMessages((prev) => [
+        ...prev, 
+        { 
+          role: "user", 
+          text: `📸 Imagen enviada: ${selectedImage.name || 'ejercicio.jpg'}` 
+        }
+      ]);
+
+      const result = await uploadImage(selectedImage, cycle);
+      
+      const reply = result.message || "He analizado tu imagen. ¿Quieres que resolvamos este ejercicio?";
+      setMessages((prev) => [...prev, { role: "assistant", text: reply }]);
+
+      if (result.question && result.success) {
+        setInput(result.question);
+      }
+
+      setSelectedImage(null);
+      setImagePreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+
+    } catch (err) {
+      console.error("❌ Error al subir imagen:", err);
+      setMessages((prev) => [...prev, { 
+        role: "assistant", 
+        text: err.message || "No pude analizar la imagen. Intenta subirla de nuevo o escribe el ejercicio." 
+      }]);
+    } finally {
+      setLoading(false);
+      isProcessingRef.current = false;
+    }
+  };
+
+  const handleCancelImage = () => {
+    setSelectedImage(null);
+    setImagePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  function isNewExercise(text) {
+    const trimmed = text.trim();
+    const patterns = [
+      /^\d+\s*[+\-×x*÷/:]\s*\d+/,
+      /^\d+[\.,]\d+\s*[×x*÷/:]\s*\d+/,
+      /^\d+\/\d+\s*[+\-×x*÷/:]\s*\d+\/\d+/,
+    ];
+    return patterns.some(p => p.test(trimmed));
+  }
+
   async function handleSend(contentOverride = "") {
-    // ✅ PROTECCIÓN: Evitar doble ejecución
     if (isProcessingRef.current) {
       console.log("⚠️ Ya hay una petición en curso, ignorando duplicado");
       return;
@@ -71,29 +206,36 @@ export default function TutorinDialogPage() {
     
     if (!content || loading) return;
 
-    isProcessingRef.current = true; // ✅ Marcar como procesando
+    if (exerciseId && isNewExercise(content)) {
+      console.log("🔄 Detectado nuevo ejercicio, reseteando estado...");
+      setExerciseId(null);
+      setQuestion(null);
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    isProcessingRef.current = true;
     setInput("");
     setLoading(true);
 
     try {
-      // Añadir mensaje del usuario ANTES de la petición
       setMessages((prev) => [...prev, { role: "user", text: content }]);
 
       if (!exerciseId) {
-        // ============================================
-        // CASO 1: INICIAR NUEVO EJERCICIO
-        // ============================================
+        const newExerciseId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        console.log("🔹 Nuevo ejercicio con ID único:", newExerciseId);
+        
         const res = await callSolve({ 
           question: content, 
           last_answer: "", 
-          exercise_id: null, 
-          cycle 
+          exercise_id: newExerciseId,
+          cycle,
         });
         
         setQuestion(content);
-        if (res.exercise_id) setExerciseId(res.exercise_id);
+        if (res.exercise_id) {
+          setExerciseId(res.exercise_id);
+        }
 
-        // Añadir respuesta de Tutorín
         const reply = res.message || "He iniciado el ejercicio.";
         setMessages((prev) => [...prev, { role: "assistant", text: reply }]);
         
@@ -104,9 +246,8 @@ export default function TutorinDialogPage() {
           setQuestion(null);
         }
       } else {
-        // ============================================
-        // CASO 2: CONTINUAR EJERCICIO EXISTENTE
-        // ============================================
+        console.log("🔹 Continuando ejercicio:", exerciseId, "| respuesta:", content);
+        
         const res = await callSolve({
           question: question || "",
           last_answer: content,
@@ -114,7 +255,6 @@ export default function TutorinDialogPage() {
           cycle,
         });
 
-        // Añadir respuesta de Tutorín
         const reply = res.message || "Sigamos.";
         setMessages((prev) => [...prev, { role: "assistant", text: reply }]);
 
@@ -133,11 +273,42 @@ export default function TutorinDialogPage() {
       }]);
     } finally {
       setLoading(false);
-      isProcessingRef.current = false; // ✅ Liberar lock
+      isProcessingRef.current = false;
     }
   }
 
-  // Analizador (solo si NO hay ejercicio activo)
+  async function handleHint() {
+    if (!exerciseId || isProcessingRef.current) return;
+
+    isProcessingRef.current = true;
+    setLoading(true);
+
+    try {
+      setMessages((prev) => [...prev, { role: "user", text: "💡 Pista solicitada" }]);
+
+      const res = await callSolve({
+        question: question || "",
+        last_answer: "no se",
+        exercise_id: exerciseId,
+        cycle,
+      });
+
+      const reply = res.message || "💡 Piensa paso a paso...";
+      setMessages((prev) => [...prev, { role: "assistant", text: reply }]);
+
+      if (res.audio_b64) playBase64Audio(res.audio_b64);
+    } catch (err) {
+      console.error("❌ Error al pedir pista:", err);
+      setMessages((prev) => [...prev, { 
+        role: "assistant", 
+        text: "No pude generar una pista ahora 😕" 
+      }]);
+    } finally {
+      setLoading(false);
+      isProcessingRef.current = false;
+    }
+  }
+
   async function handleAnalyze() {
     if (exerciseId || isProcessingRef.current) return;
     
@@ -175,13 +346,16 @@ export default function TutorinDialogPage() {
     
     setExerciseId(null);
     setQuestion(null);
+    setSelectedImage(null);
+    setImagePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    
     setMessages([{ 
       role: "assistant", 
-      text: "🔄 Nuevo ejercicio: escríbelo y lo resolvemos paso a paso." 
+      text: "🔄 Nuevo ejercicio: escríbelo, súbelo en foto o pega una captura (Ctrl+V)." 
     }]);
   }
 
-  // ✅ MANEJADOR DE TECLADO (sin duplicados)
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !isProcessingRef.current) {
       e.preventDefault();
@@ -241,48 +415,109 @@ export default function TutorinDialogPage() {
       </main>
 
       <footer style={styles.footer}>
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={exerciseId ? "Escribe tu respuesta…" : "Escribe tu ejercicio (p. ej. 32+45)…"}
-          style={styles.input}
-          disabled={loading}
-        />
-        <button 
-          type="button" 
-          onClick={() => handleSend()} 
-          style={styles.sendBtn}
-          disabled={loading}
-        >
-          ➤
-        </button>
-        {!exerciseId && (
+        {imagePreview && (
+          <div style={styles.imagePreviewContainer}>
+            <img src={imagePreview} alt="Preview" style={styles.imagePreview} />
+            <div style={styles.imageActions}>
+              <button onClick={handleSendImage} style={styles.sendImageBtn} disabled={loading}>
+                ✅ Enviar foto
+              </button>
+              <button onClick={handleCancelImage} style={styles.cancelImageBtn} disabled={loading}>
+                ❌ Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div style={styles.inputRow}>
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={exerciseId ? "Escribe tu respuesta…" : "Escribe, pega (Ctrl+V) o sube una foto…"}
+            style={styles.input}
+            disabled={loading}
+          />
+          
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleImageSelect}
+            style={{ display: 'none' }}
+            disabled={loading}
+          />
+
           <button 
             type="button" 
-            onClick={handleAnalyze} 
-            style={styles.secondaryBtn} 
-            title="Analizar en lenguaje natural"
-            disabled={loading}
+            onClick={() => fileInputRef.current?.click()} 
+            style={styles.imageBtn}
+            disabled={loading || !!exerciseId}
+            title={exerciseId ? "Termina el ejercicio para subir fotos" : "Subir foto del ejercicio"}
           >
-            🔎 Analizar
+            📷
           </button>
-        )}
-        <button 
-          type="button" 
-          onClick={resetExercise} 
-          style={styles.secondaryBtn}
-          disabled={loading}
-        >
-          🔄 Nuevo
-        </button>
+
+          <button 
+            type="button" 
+            onClick={() => handleSend()} 
+            style={styles.sendBtn}
+            disabled={loading || !input.trim()}
+            title="Enviar mensaje (Enter)"
+          >
+            ➤
+          </button>
+          
+          {exerciseId && (
+            <button 
+              type="button" 
+              onClick={handleHint} 
+              style={styles.hintBtn}
+              title="Pedir una pista para este paso"
+              disabled={loading}
+            >
+              💡 Pista
+            </button>
+          )}
+
+          {!exerciseId && (
+            <button 
+              type="button" 
+              onClick={handleAnalyze} 
+              style={styles.secondaryBtn} 
+              title="Analizar el ejercicio en lenguaje natural antes de resolverlo"
+              disabled={loading || !input.trim()}
+            >
+              🔎 Analizar
+            </button>
+          )}
+          
+          <button 
+            type="button" 
+            onClick={resetExercise} 
+            style={styles.secondaryBtn}
+            disabled={loading}
+            title="Cancelar ejercicio y empezar de nuevo"
+          >
+            🔄 Nuevo
+          </button>
+        </div>
+
+        <div style={styles.helpText}>
+          {exerciseId ? (
+            <span>💡 <strong>Pista disponible</strong> - Si necesitas ayuda, pulsa el botón 💡</span>
+          ) : (
+            <span>💭 Escribe un ejercicio, sube una foto 📷 o pega una captura (Ctrl+V)</span>
+          )}
+        </div>
       </footer>
     </div>
   );
 }
 
 const styles = {
-  page: { height: "100vh", display: "grid", gridTemplateRows: "64px 1fr 64px" },
+  page: { height: "100vh", display: "grid", gridTemplateRows: "64px 1fr auto" },
   header: { 
     padding: "8px 16px", 
     borderBottom: "1px solid #e5e7eb", 
@@ -296,10 +531,12 @@ const styles = {
   footer: { 
     borderTop: "1px solid #e5e7eb", 
     padding: 10, 
+    background: "#fafafa" 
+  },
+  inputRow: {
     display: "flex", 
     gap: 10, 
-    alignItems: "center", 
-    background: "#fafafa" 
+    alignItems: "center"
   },
   input: { 
     flex: 1, 
@@ -314,7 +551,28 @@ const styles = {
     border: "none", 
     borderRadius: 10, 
     padding: "10px 14px", 
-    cursor: "pointer" 
+    cursor: "pointer",
+    fontSize: 18,
+  },
+  imageBtn: {
+    background: "#10b981",
+    color: "#fff",
+    border: "none",
+    borderRadius: 10,
+    padding: "10px 14px",
+    cursor: "pointer",
+    fontSize: 18
+  },
+  hintBtn: { 
+    background: "linear-gradient(135deg, #FFB84D 0%, #FF6B4A 100%)",
+    color: "#fff", 
+    border: "none", 
+    borderRadius: 10, 
+    padding: "10px 14px", 
+    cursor: "pointer",
+    fontWeight: "600",
+    fontSize: 16,
+    boxShadow: "0 4px 12px rgba(255, 184, 77, 0.3)",
   },
   mic: { 
     background: "#2563eb", 
@@ -356,4 +614,47 @@ const styles = {
     padding: "8px 10px", 
     cursor: "pointer" 
   },
+  imagePreviewContainer: {
+    marginBottom: 10,
+    padding: 10,
+    background: "#fff",
+    borderRadius: 10,
+    border: "1px solid #e5e7eb"
+  },
+  imagePreview: {
+    maxWidth: "100%",
+    maxHeight: 200,
+    borderRadius: 8,
+    display: "block",
+    marginBottom: 10
+  },
+  imageActions: {
+    display: "flex",
+    gap: 10,
+    justifyContent: "center"
+  },
+  sendImageBtn: {
+    background: "#10b981",
+    color: "#fff",
+    border: "none",
+    borderRadius: 8,
+    padding: "8px 16px",
+    cursor: "pointer",
+    fontWeight: 600
+  },
+  cancelImageBtn: {
+    background: "#ef4444",
+    color: "#fff",
+    border: "none",
+    borderRadius: 8,
+    padding: "8px 16px",
+    cursor: "pointer",
+    fontWeight: 600
+  },
+  helpText: {
+    marginTop: 8,
+    fontSize: 13,
+    color: "#6b7280",
+    textAlign: "center"
+  }
 };
