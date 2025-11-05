@@ -263,4 +263,39 @@ export async function uploadReadingPhoto(imageBase64) {
   }
 }
 
+/**
+ * Procesa MÚLTIPLES fotos de un libro para extraer texto y preguntas
+ * @param {string[]} imagesBase64Array - Array de imágenes codificadas en base64
+ * @returns {Promise<Object>} Respuesta del servidor con exercise_id y exercise
+ * @throws {Error} Error descriptivo si falla la petición
+ */
+export async function uploadMultipleReadingPhotos(imagesBase64Array) {
+  try {
+    const res = await fetch(`${API_BASE}/api/reading/from-photos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ images: imagesBase64Array })
+    });
+
+    if (!res.ok) {
+      let errorMessage = `Error HTTP ${res.status}`;
+
+      try {
+        const errorData = await res.json();
+        errorMessage = errorData.detail || errorData.message || errorMessage;
+      } catch {}
+
+      throw new Error(errorMessage);
+    }
+
+    return await res.json();
+
+  } catch (err) {
+    if (err.name === "TypeError" && err.message.includes("fetch")) {
+      throw new Error("❌ No se pudo conectar con Tutorín para procesar las fotos.");
+    }
+    throw err;
+  }
+}
+
 export { API_BASE };
