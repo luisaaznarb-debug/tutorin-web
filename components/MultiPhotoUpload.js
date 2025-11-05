@@ -28,6 +28,7 @@ export default function MultiPhotoUpload({
 }) {
   const [images, setImages] = useState([]); // Array de {file, preview, id}
   const [error, setError] = useState(null);
+  const [pasteSuccess, setPasteSuccess] = useState(false);
   const fileInputRef = useRef(null);
 
   // Limpiar previews al desmontar
@@ -40,6 +41,63 @@ export default function MultiPhotoUpload({
       });
     };
   }, [images]);
+
+  // Handler para detectar Ctrl+V
+  useEffect(() => {
+    const handlePaste = (event) => {
+      const items = event.clipboardData?.items;
+      if (!items) return;
+
+      // Buscar imágenes en el clipboard
+      const imageItems = Array.from(items).filter(item =>
+        item.type.startsWith('image/')
+      );
+
+      if (imageItems.length === 0) return;
+
+      event.preventDefault();
+
+      // Validar que no exceda el límite
+      if (images.length + imageItems.length > maxPhotos) {
+        setError(`Máximo ${maxPhotos} fotos. Elimina alguna para pegar más.`);
+        return;
+      }
+
+      // Procesar cada imagen pegada
+      imageItems.forEach(item => {
+        const file = item.getAsFile();
+        if (!file) return;
+
+        // Validar tamaño
+        if (file.size > 5 * 1024 * 1024) {
+          setError('La imagen pegada es muy grande (máximo 5MB)');
+          return;
+        }
+
+        // Crear preview
+        const newImage = {
+          id: generateId(),
+          file: file,
+          preview: URL.createObjectURL(file)
+        };
+
+        setImages(prev => [...prev, newImage]);
+        setError(null);
+      });
+
+      // Mostrar feedback visual
+      setPasteSuccess(true);
+      setTimeout(() => setPasteSuccess(false), 2000);
+    };
+
+    // Agregar listener
+    window.addEventListener('paste', handlePaste);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('paste', handlePaste);
+    };
+  }, [images, maxPhotos]); // Dependencias: images y maxPhotos para validar límite
 
   // Generar ID único para cada imagen
   const generateId = () => `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -169,16 +227,58 @@ export default function MultiPhotoUpload({
         </div>
       )}
 
+      {/* FEEDBACK DE PASTE */}
+      {pasteSuccess && (
+        <div style={{
+          background: '#dcfce7',
+          color: '#166534',
+          padding: '12px',
+          borderRadius: '8px',
+          marginBottom: '16px',
+          textAlign: 'center',
+          animation: 'fadeIn 0.3s'
+        }}>
+          ✅ Imagen pegada correctamente
+        </div>
+      )}
+
       {/* BOTONES DE ACCIÓN */}
       <div style={styles.uploadArea}>
         {images.length === 0 ? (
-          <p style={styles.uploadText}>
-            📷 Toma fotos de las páginas
-          </p>
+          <>
+            <p style={styles.uploadText}>
+              📷 Toma fotos de las páginas
+            </p>
+            <p style={{
+              fontSize: '14px',
+              color: '#94a3b8',
+              marginBottom: '16px',
+              background: '#fff',
+              padding: '8px 16px',
+              borderRadius: '6px',
+              display: 'inline-block'
+            }}>
+              💡 También puedes pegar con <kbd style={{
+                background: '#e5e7eb',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                fontFamily: 'monospace'
+              }}>Ctrl+V</kbd>
+            </p>
+          </>
         ) : (
-          <p style={styles.selectedText}>
-            {images.length} foto{images.length !== 1 ? 's' : ''} seleccionada{images.length !== 1 ? 's' : ''}
-          </p>
+          <>
+            <p style={{...styles.selectedText, marginBottom: '8px'}}>
+              {images.length} foto{images.length !== 1 ? 's' : ''} seleccionada{images.length !== 1 ? 's' : ''}
+            </p>
+            <p style={{
+              fontSize: '13px',
+              color: '#94a3b8',
+              marginBottom: '16px'
+            }}>
+              💡 Puedes pegar más con Ctrl+V
+            </p>
+          </>
         )}
 
         <input
