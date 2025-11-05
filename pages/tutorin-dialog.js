@@ -3,6 +3,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import ChatBubble from "../components/ChatBubble";
+import ReadingSetup from "../components/ReadingSetup";
 import { callSolve, playBase64Audio, analyzePrompt, uploadImage } from "../services/tutorinApi";
 
 export default function TutorinDialogPage() {
@@ -24,6 +25,10 @@ export default function TutorinDialogPage() {
   // Estados para imágenes
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+
+  // Estados para comprensión lectora
+  const [readingMode, setReadingMode] = useState(false);
+  const [currentExercise, setCurrentExercise] = useState(null);
 
   const recognitionRef = useRef(null);
   const chatRef = useRef(null);
@@ -203,8 +208,27 @@ export default function TutorinDialogPage() {
 
     const override = typeof contentOverride === "string" ? contentOverride.trim() : "";
     const content = override || input.trim();
-    
+
     if (!content || loading) return;
+
+    // Detectar si el usuario quiere hacer ejercicios de lectura
+    const userTextLower = content.toLowerCase();
+    if (!exerciseId && (
+      userTextLower.includes('lectura') ||
+      userTextLower.includes('leer') ||
+      userTextLower.includes('comprensión') ||
+      userTextLower.includes('comprension') ||
+      userTextLower.includes('texto')
+    )) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "user", text: content },
+        { role: "assistant", text: "📚 ¡Perfecto! Voy a preparar el modo de comprensión lectora para ti..." }
+      ]);
+      setInput("");
+      setReadingMode(true);
+      return;
+    }
 
     if (exerciseId && isNewExercise(content)) {
       console.log("🔄 Detectado nuevo ejercicio, reseteando estado...");
@@ -311,31 +335,83 @@ export default function TutorinDialogPage() {
 
   async function handleAnalyze() {
     if (exerciseId || isProcessingRef.current) return;
-    
+
     const content = input.trim();
     if (!content) return;
-    
+
     isProcessingRef.current = true;
     setMessages((p) => [...p, { role: "user", text: content }]);
-    setInput(""); 
+    setInput("");
     setLoading(true);
-    
+
     try {
-      const data = await analyzePrompt({ 
-        prompt: content, 
-        step: 0, 
-        answer: "", 
-        errors: 0, 
-        lang 
+      const data = await analyzePrompt({
+        prompt: content,
+        step: 0,
+        answer: "",
+        errors: 0,
+        lang
       });
       const reply = data?.response?.message || data?.message || "¿Probamos paso a paso?";
       setMessages((p) => [...p, { role: "assistant", text: reply }]);
     } catch {
-      setMessages((p) => [...p, { 
-        role: "assistant", 
-        text: "No he podido analizarlo. Escribe el ejercicio tal cual (p. ej. 32+45)." 
+      setMessages((p) => [...p, {
+        role: "assistant",
+        text: "No he podido analizarlo. Escribe el ejercicio tal cual (p. ej. 32+45)."
       }]);
-    } finally { 
+    } finally {
+      setLoading(false);
+      isProcessingRef.current = false;
+    }
+  }
+
+  // Función para iniciar ejercicio de lectura
+  async function handleStartReading(exerciseId, exercise) {
+    if (isProcessingRef.current) return;
+
+    isProcessingRef.current = true;
+    setReadingMode(false);
+    setCurrentExercise(exercise);
+    setLoading(true);
+
+    try {
+      console.log("🔹 Iniciando ejercicio de lectura:", exerciseId);
+
+      // Formatear ejercicio para el motor
+      const exerciseJson = JSON.stringify(exercise);
+
+      // Llamar a callSolve con el ejercicio de lectura
+      const res = await callSolve({
+        question: exerciseJson,
+        last_answer: "",
+        exercise_id: exerciseId,
+        cycle,
+      });
+
+      setQuestion(exerciseJson);
+      setExerciseId(exerciseId);
+
+      const reply = res.message || "He preparado el ejercicio de lectura. ¡Empecemos!";
+      setMessages((prev) => [...prev, { role: "assistant", text: reply }]);
+
+      if (res.audio_b64) playBase64Audio(res.audio_b64);
+
+      if (res.status === "done") {
+        setExerciseId(null);
+        setQuestion(null);
+        setCurrentExercise(null);
+      }
+    } catch (err) {
+      console.error("❌ Error al iniciar ejercicio de lectura:", err);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: err.message || "Error al iniciar el ejercicio de lectura 😕"
+        }
+      ]);
+      setReadingMode(true); // Volver al modo de configuración
+    } finally {
       setLoading(false);
       isProcessingRef.current = false;
     }
@@ -343,16 +419,18 @@ export default function TutorinDialogPage() {
 
   function resetExercise() {
     if (isProcessingRef.current) return;
-    
+
     setExerciseId(null);
     setQuestion(null);
     setSelectedImage(null);
     setImagePreview(null);
+    setReadingMode(false);
+    setCurrentExercise(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
-    
-    setMessages([{ 
-      role: "assistant", 
-      text: "🔄 Nuevo ejercicio: escríbelo, súbelo en foto o pega una captura (Ctrl+V)." 
+
+    setMessages([{
+      role: "assistant",
+      text: "🔄 Nuevo ejercicio: escríbelo, súbelo en foto o pega una captura (Ctrl+V)."
     }]);
   }
 
@@ -404,32 +482,39 @@ export default function TutorinDialogPage() {
       </header>
 
       <main ref={chatRef} style={styles.chat}>
-        {messages.map((m, i) => (
-          <ChatBubble key={i} role={m.role === "assistant" ? "assistant" : "user"} text={m.text} />
-        ))}
-        {loading && (
-          <div style={{ color: "#6b7280", fontSize: 14, margin: "8px 0" }}>
-            Estoy pensando cómo ayudarte…
-          </div>
+        {readingMode ? (
+          <ReadingSetup onStart={handleStartReading} />
+        ) : (
+          <>
+            {messages.map((m, i) => (
+              <ChatBubble key={i} role={m.role === "assistant" ? "assistant" : "user"} text={m.text} />
+            ))}
+            {loading && (
+              <div style={{ color: "#6b7280", fontSize: 14, margin: "8px 0" }}>
+                Estoy pensando cómo ayudarte…
+              </div>
+            )}
+          </>
         )}
       </main>
 
-      <footer style={styles.footer}>
-        {imagePreview && (
-          <div style={styles.imagePreviewContainer}>
-            <img src={imagePreview} alt="Preview" style={styles.imagePreview} />
-            <div style={styles.imageActions}>
-              <button onClick={handleSendImage} style={styles.sendImageBtn} disabled={loading}>
-                ✅ Enviar foto
-              </button>
-              <button onClick={handleCancelImage} style={styles.cancelImageBtn} disabled={loading}>
-                ❌ Cancelar
-              </button>
+      {!readingMode && (
+        <footer style={styles.footer}>
+          {imagePreview && (
+            <div style={styles.imagePreviewContainer}>
+              <img src={imagePreview} alt="Preview" style={styles.imagePreview} />
+              <div style={styles.imageActions}>
+                <button onClick={handleSendImage} style={styles.sendImageBtn} disabled={loading}>
+                  ✅ Enviar foto
+                </button>
+                <button onClick={handleCancelImage} style={styles.cancelImageBtn} disabled={loading}>
+                  ❌ Cancelar
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        <div style={styles.inputRow}>
+          <div style={styles.inputRow}>
           <input
             ref={inputRef}
             value={input}
@@ -504,14 +589,15 @@ export default function TutorinDialogPage() {
           </button>
         </div>
 
-        <div style={styles.helpText}>
-          {exerciseId ? (
-            <span>💡 <strong>Pista disponible</strong> - Si necesitas ayuda, pulsa el botón 💡</span>
-          ) : (
-            <span>💭 Escribe un ejercicio, sube una foto 📷 o pega una captura (Ctrl+V)</span>
-          )}
-        </div>
-      </footer>
+          <div style={styles.helpText}>
+            {exerciseId ? (
+              <span>💡 <strong>Pista disponible</strong> - Si necesitas ayuda, pulsa el botón 💡</span>
+            ) : (
+              <span>💭 Escribe un ejercicio, sube una foto 📷 o pega una captura (Ctrl+V)</span>
+            )}
+          </div>
+        </footer>
+      )}
     </div>
   );
 }
