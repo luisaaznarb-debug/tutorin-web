@@ -147,4 +147,120 @@ export function playBase64Audio(b64) {
   }
 }
 
+// ========================================
+// COMPRENSIÓN LECTORA
+// ========================================
+
+/**
+ * Configura un ejercicio de lectura con texto y opcionalmente preguntas
+ * @param {string} text - Texto para leer
+ * @param {string|null} questionsText - Texto con las preguntas del libro (opcional)
+ * @param {string} level - Nivel educativo (1-6)
+ * @returns {Promise<Object>} Respuesta del servidor con exercise_id y exercise
+ * @throws {Error} Error descriptivo si falla la petición
+ */
+export async function setupReading(text, questionsText, level) {
+  try {
+    const res = await fetch(`${API_BASE}/api/reading/setup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        questions_text: questionsText,
+        level
+      })
+    });
+
+    if (!res.ok) {
+      let errorMessage = `Error HTTP ${res.status}`;
+
+      try {
+        const errorData = await res.json();
+        errorMessage = errorData.detail || errorData.message || errorMessage;
+      } catch {}
+
+      throw new Error(errorMessage);
+    }
+
+    return await res.json();
+
+  } catch (err) {
+    if (err.name === "TypeError" && err.message.includes("fetch")) {
+      throw new Error("❌ No se pudo conectar con Tutorín. Revisa tu conexión a internet.");
+    }
+    throw err;
+  }
+}
+
+/**
+ * Genera un ejercicio de lectura automático sobre un tema
+ * @param {string} topic - Tema del texto (ej: "dinosaurios", "espacio")
+ * @param {string} level - Nivel educativo (1-6)
+ * @returns {Promise<Object>} Respuesta del servidor con exercise_id y exercise
+ * @throws {Error} Error descriptivo si falla la petición
+ */
+export async function generateReading(topic, level) {
+  try {
+    const res = await fetch(`${API_BASE}/api/reading/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic, level })
+    });
+
+    if (!res.ok) {
+      let errorMessage = `Error HTTP ${res.status}`;
+
+      try {
+        const errorData = await res.json();
+        errorMessage = errorData.detail || errorData.message || errorMessage;
+      } catch {}
+
+      throw new Error(errorMessage);
+    }
+
+    return await res.json();
+
+  } catch (err) {
+    if (err.name === "TypeError" && err.message.includes("fetch")) {
+      throw new Error("❌ No se pudo conectar con Tutorín para generar el ejercicio.");
+    }
+    throw err;
+  }
+}
+
+/**
+ * Procesa una foto de un libro para extraer texto y preguntas
+ * @param {string} imageBase64 - Imagen codificada en base64
+ * @returns {Promise<Object>} Respuesta del servidor con exercise_id y exercise
+ * @throws {Error} Error descriptivo si falla la petición
+ */
+export async function uploadReadingPhoto(imageBase64) {
+  try {
+    const res = await fetch(`${API_BASE}/api/reading/from-photo`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: imageBase64 })
+    });
+
+    if (!res.ok) {
+      let errorMessage = `Error HTTP ${res.status}`;
+
+      try {
+        const errorData = await res.json();
+        errorMessage = errorData.detail || errorData.message || errorMessage;
+      } catch {}
+
+      throw new Error(errorMessage);
+    }
+
+    return await res.json();
+
+  } catch (err) {
+    if (err.name === "TypeError" && err.message.includes("fetch")) {
+      throw new Error("❌ No se pudo conectar con Tutorín para procesar la foto.");
+    }
+    throw err;
+  }
+}
+
 export { API_BASE };
